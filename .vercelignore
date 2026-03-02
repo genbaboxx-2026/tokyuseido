@@ -1,6 +1,7 @@
 tmp/
 tests/
-*.mjs
+test-*.mjs
+check-periods-temp.mjs
 test-*.ts
 Agent_Teams_セットアップガイド.md
 NiNKU_BOXX_要件定義書.md
