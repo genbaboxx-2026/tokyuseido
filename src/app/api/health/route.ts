@@ -7,6 +7,9 @@ export async function GET() {
     timestamp: new Date().toISOString(),
     env: {
       DATABASE_URL: !!process.env.DATABASE_URL,
+      DATABASE_URL_preview: process.env.DATABASE_URL
+        ? process.env.DATABASE_URL.replace(/:([^@]+)@/, ":***@").substring(0, 120)
+        : "NOT SET",
       NEXTAUTH_SECRET: !!process.env.NEXTAUTH_SECRET,
       NEXTAUTH_URL: process.env.NEXTAUTH_URL,
       AUTH_TRUST_HOST: process.env.AUTH_TRUST_HOST,
