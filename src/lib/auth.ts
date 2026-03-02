@@ -14,35 +14,47 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "パスワード", type: "password" },
       },
       authorize: async (credentials) => {
-        if (!credentials?.email || !credentials?.password) {
-          return null
-        }
+        try {
+          if (!credentials?.email || !credentials?.password) {
+            console.log("[AUTH] Missing credentials")
+            return null
+          }
 
-        const email = credentials.email as string
-        const password = credentials.password as string
+          const email = credentials.email as string
+          const password = credentials.password as string
 
-        const user = await prisma.user.findUnique({
-          where: { email },
-        })
+          console.log("[AUTH] Looking up user:", email)
+          const user = await prisma.user.findUnique({
+            where: { email },
+          })
 
-        if (!user || !user.password) {
-          return null
-        }
+          if (!user || !user.password) {
+            console.log("[AUTH] User not found or no password")
+            return null
+          }
 
-        const isPasswordValid = await bcrypt.compare(password, user.password)
+          console.log("[AUTH] User found, checking password")
+          const isPasswordValid = await bcrypt.compare(password, user.password)
 
-        if (!isPasswordValid) {
-          return null
-        }
+          if (!isPasswordValid) {
+            console.log("[AUTH] Invalid password")
+            return null
+          }
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
+          console.log("[AUTH] Login success for:", email)
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+          }
+        } catch (error) {
+          console.error("[AUTH] Error in authorize:", error)
+          throw error
         }
       },
     }),
   ],
+  debug: process.env.NODE_ENV !== "production",
   session: {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30日
