@@ -1,0 +1,7 @@
+tmp/
+tests/
+*.mjs
+test-*.ts
+Agent_Teams_セットアップガイド.md
+NiNKU_BOXX_要件定義書.md
+CLAUDE.md
