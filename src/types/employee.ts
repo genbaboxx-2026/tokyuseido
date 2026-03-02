@@ -188,9 +188,6 @@ export interface EmployeeWithRelations extends Employee {
     name: string;
     level: number;
   } | null;
-  // 評価有無
-  has360Evaluation?: boolean;
-  hasIndividualEvaluation?: boolean;
 }
 
 /**

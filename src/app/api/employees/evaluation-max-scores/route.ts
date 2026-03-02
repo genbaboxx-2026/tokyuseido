@@ -27,11 +27,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 評価方法を取得（1項目あたりの最大スコア - 個別評価用）
-    const scoringMethod = await prisma.evaluationScoringMethod.findUnique({
-      where: { companyId },
-    })
-    const maxScorePerItem = scoringMethod?.maxScore ?? 5
+    // 1項目あたりの最大スコア（個別評価用、デフォルト5点満点）
+    const maxScorePerItem = 5
 
     // 会社の従業員を取得
     const employees = await prisma.employee.findMany({
