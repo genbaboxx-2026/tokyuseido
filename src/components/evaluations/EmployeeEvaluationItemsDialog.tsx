@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   Dialog,
   DialogContent,
@@ -66,6 +67,7 @@ interface EmployeeEvaluationItemsDialogProps {
   employee: Employee | null
   rolesData: GradeRoleData[] | undefined
   companyId: string
+  onScoreChange?: (employeeId: string, totalScore: number) => void
 }
 
 export function EmployeeEvaluationItemsDialog({
@@ -74,7 +76,9 @@ export function EmployeeEvaluationItemsDialog({
   employee,
   rolesData,
   companyId,
+  onScoreChange,
 }: EmployeeEvaluationItemsDialogProps) {
+  const queryClient = useQueryClient()
   const [evaluationItems, setEvaluationItems] = useState<EmployeeEvalItem[]>([])
   const [originalItems, setOriginalItems] = useState<EmployeeEvalItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -204,6 +208,13 @@ export function EmployeeEvaluationItemsDialog({
 
   const totalMaxScore = evaluationItems.reduce((sum, item) => sum + item.maxScore, 0)
 
+  // リアルタイムでスコアの変更を親コンポーネントに通知
+  useEffect(() => {
+    if (employee && onScoreChange && evaluationItems.length > 0) {
+      onScoreChange(employee.id, totalMaxScore)
+    }
+  }, [employee, onScoreChange, totalMaxScore, evaluationItems.length])
+
   const handleSave = async () => {
     if (!employee) return
 
@@ -233,6 +244,12 @@ export function EmployeeEvaluationItemsDialog({
 
       setOriginalItems(validItems)
       setEvaluationItems(validItems)
+
+      // キャッシュを無効化して一覧を更新
+      queryClient.invalidateQueries({ queryKey: ["evaluationMaxScores", companyId] })
+      queryClient.invalidateQueries({ queryKey: ["employeeEvaluationWeights", companyId] })
+      queryClient.invalidateQueries({ queryKey: ["evaluationStatuses"] })
+      queryClient.invalidateQueries({ queryKey: ["evaluationCustomStatus", companyId] })
 
       if (pendingClose) {
         onOpenChange(false)
@@ -278,7 +295,7 @@ export function EmployeeEvaluationItemsDialog({
           onOpenChange(newOpen)
         }
       }}>
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+        <DialogContent className="!max-w-[calc(100vw-200px)] w-[900px] max-h-[85vh] flex flex-col overflow-hidden">
           <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <ClipboardCheck className="h-5 w-5" />
@@ -317,10 +334,14 @@ export function EmployeeEvaluationItemsDialog({
                         disabled={isSaving}
                       />
                       <Input
-                        type="number"
-                        min="0"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         value={item.maxScore}
-                        onChange={(e) => handleEditItemMaxScore(index, parseInt(e.target.value) || 0)}
+                        onChange={(e) => {
+                          const sanitized = e.target.value.replace(/[^0-9]/g, "")
+                          handleEditItemMaxScore(index, sanitized === "" ? 0 : parseInt(sanitized, 10))
+                        }}
                         className="w-20 text-center"
                         disabled={isSaving}
                       />

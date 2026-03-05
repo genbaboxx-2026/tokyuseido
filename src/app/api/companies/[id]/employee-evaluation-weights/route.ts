@@ -51,11 +51,10 @@ export async function GET(
       where: {
         companyId,
         status: "confirmed",
-        isActive: true,
       },
       include: {
-        grades: { select: { id: true } },
-        jobTypes: { select: { id: true } },
+        grades: { select: { gradeId: true } },
+        jobTypes: { select: { jobTypeId: true } },
         categories: {
           include: {
             items: { select: { maxScore: true } },
@@ -70,8 +69,6 @@ export async function GET(
         gradeJobTypeConfig: {
           grade: { companyId },
         },
-        status: "confirmed",
-        isActive: true,
       },
       include: {
         gradeJobTypeConfig: {
@@ -84,7 +81,34 @@ export async function GET(
       },
     })
 
-    // 個人カスタマイズ項目を取得
+    // 役割責任を取得（個別評価のフォールバック用）
+    const allRoles = await prisma.gradeRole.findMany({
+      where: {
+        gradeJobTypeConfig: {
+          grade: { companyId },
+        },
+      },
+      include: {
+        gradeJobTypeConfig: {
+          select: {
+            gradeId: true,
+            jobTypeId: true,
+          },
+        },
+      },
+    })
+
+    // gradeId-jobTypeId -> 役割責任数 × 5 のマップを作成
+    const roleCountMap = new Map<string, number>()
+    for (const role of allRoles) {
+      const key = `${role.gradeJobTypeConfig.gradeId}-${role.gradeJobTypeConfig.jobTypeId}`
+      const responsibilities = role.responsibilities as string[] | null
+      if (responsibilities && responsibilities.length > 0) {
+        roleCountMap.set(key, responsibilities.length * 5) // 1項目5点満点
+      }
+    }
+
+    // 個人カスタマイズ項目を取得（EvaluationCustomItem）
     const customItems = await prisma.evaluationCustomItem.findMany({
       where: {
         companyId,
@@ -109,27 +133,83 @@ export async function GET(
       return acc
     }, {} as Record<string, { "360": typeof customItems; individual: typeof customItems }>)
 
+    // 360度評価の個人カスタム項目を取得（Employee360EvaluationItem）
+    const employee360Items = await prisma.employee360EvaluationItem.findMany({
+      where: {
+        employeeId: { in: employees.map((e) => e.id) },
+      },
+      select: {
+        employeeId: true,
+        maxScore: true,
+      },
+    })
+
+    // 従業員ごとの360度評価項目をグループ化
+    const employee360ItemsByEmployee = employee360Items.reduce((acc, item) => {
+      if (!acc[item.employeeId]) {
+        acc[item.employeeId] = []
+      }
+      acc[item.employeeId].push(item)
+      return acc
+    }, {} as Record<string, typeof employee360Items>)
+
+    // 個別評価のカスタム項目を取得（EmployeeEvaluation.evaluatorComment に JSON で保存）
+    const employeeEvaluations = await prisma.employeeEvaluation.findMany({
+      where: {
+        employeeId: { in: employees.map((e) => e.id) },
+        evaluationType: "custom_items",
+      },
+      select: {
+        employeeId: true,
+        evaluatorComment: true,
+      },
+      orderBy: { createdAt: "desc" },
+    })
+
+    // 従業員ごとの個別評価項目をグループ化
+    const employeeEvaluationsByEmployee = employeeEvaluations.reduce((acc, item) => {
+      if (!acc[item.employeeId] && item.evaluatorComment) {
+        try {
+          const items = JSON.parse(item.evaluatorComment)
+          if (Array.isArray(items)) {
+            acc[item.employeeId] = items
+          }
+        } catch {
+          // JSON parse error
+        }
+      }
+      return acc
+    }, {} as Record<string, Array<{ name: string; maxScore?: number }>>)
+
     // 従業員データを整形
     const result = employees.map((employee) => {
       // 360度テンプレートの満点を計算
       let score360Max: number | null = null
       let score360MaxCustomized = false
 
-      const empCustom360 = customItemsByEmployee[employee.id]?.["360"]
-      if (empCustom360 && empCustom360.length > 0) {
-        score360Max = empCustom360.reduce((sum, item) => sum + item.maxScore, 0)
-        score360MaxCustomized = empCustom360.some(item => item.isCustomized || item.isAdded)
+      // まず個人の360度評価項目を確認（Employee360EvaluationItem）
+      const emp360Items = employee360ItemsByEmployee[employee.id]
+      if (emp360Items && emp360Items.length > 0) {
+        score360Max = emp360Items.reduce((sum, item) => sum + item.maxScore, 0)
+        score360MaxCustomized = true
       } else {
-        // テンプレートから取得
-        const matching360Template = templates360.find((t) =>
-          t.grades.some((g) => g.id === employee.gradeId) &&
-          t.jobTypes.some((jt) => jt.id === employee.jobTypeId)
-        )
-        if (matching360Template) {
-          score360Max = matching360Template.categories.reduce(
-            (sum, cat) => sum + cat.items.reduce((s, item) => s + item.maxScore, 0),
-            0
+        // 次にEvaluationCustomItemを確認
+        const empCustom360 = customItemsByEmployee[employee.id]?.["360"]
+        if (empCustom360 && empCustom360.length > 0) {
+          score360Max = empCustom360.reduce((sum, item) => sum + item.maxScore, 0)
+          score360MaxCustomized = empCustom360.some(item => item.isCustomized || item.isAdded)
+        } else {
+          // テンプレートから取得
+          const matching360Template = templates360.find((t) =>
+            t.grades.some((g) => g.gradeId === employee.gradeId) &&
+            t.jobTypes.some((jt) => jt.jobTypeId === employee.jobTypeId)
           )
+          if (matching360Template) {
+            score360Max = matching360Template.categories.reduce(
+              (sum, cat) => sum + cat.items.reduce((s, item) => s + item.maxScore, 0),
+              0
+            )
+          }
         }
       }
 
@@ -137,22 +217,41 @@ export async function GET(
       let scoreIndividualMax: number | null = null
       let scoreIndividualMaxCustomized = false
 
-      const empCustomIndividual = customItemsByEmployee[employee.id]?.individual
-      if (empCustomIndividual && empCustomIndividual.length > 0) {
-        scoreIndividualMax = empCustomIndividual.reduce((sum, item) => sum + item.maxScore, 0)
-        scoreIndividualMaxCustomized = empCustomIndividual.some(item => item.isCustomized || item.isAdded)
+      // まず個人の個別評価項目を確認（EmployeeEvaluation.evaluatorComment）
+      const empEvalItems = employeeEvaluationsByEmployee[employee.id]
+      if (empEvalItems && empEvalItems.length > 0) {
+        scoreIndividualMax = empEvalItems.reduce((sum, item) => sum + (item.maxScore ?? 5), 0)
+        scoreIndividualMaxCustomized = true
       } else {
-        // テンプレートから取得
-        const matchingIndividualTemplate = individualTemplates.find(
-          (t) =>
-            t.gradeJobTypeConfig.grade.id === employee.gradeId &&
-            t.gradeJobTypeConfig.jobType.id === employee.jobTypeId
-        )
-        if (matchingIndividualTemplate) {
-          scoreIndividualMax = matchingIndividualTemplate.items.reduce(
-            (sum, item) => sum + item.maxScore,
-            0
+        // 次にEvaluationCustomItemを確認
+        const empCustomIndividual = customItemsByEmployee[employee.id]?.individual
+        if (empCustomIndividual && empCustomIndividual.length > 0) {
+          scoreIndividualMax = empCustomIndividual.reduce((sum, item) => sum + item.maxScore, 0)
+          scoreIndividualMaxCustomized = empCustomIndividual.some(item => item.isCustomized || item.isAdded)
+        } else {
+          // テンプレートから取得
+          const matchingIndividualTemplate = individualTemplates.find(
+            (t) =>
+              t.gradeJobTypeConfig.grade.id === employee.gradeId &&
+              t.gradeJobTypeConfig.jobType.id === employee.jobTypeId
           )
+          if (matchingIndividualTemplate && matchingIndividualTemplate.items.length > 0) {
+            scoreIndividualMax = matchingIndividualTemplate.items.reduce(
+              (sum, item) => sum + item.maxScore,
+              0
+            )
+          } else {
+            // テンプレートがなければ役割責任から取得
+            const gradeJobTypeKey = employee.gradeId && employee.jobTypeId
+              ? `${employee.gradeId}-${employee.jobTypeId}`
+              : null
+            if (gradeJobTypeKey) {
+              const roleScore = roleCountMap.get(gradeJobTypeKey)
+              if (roleScore && roleScore > 0) {
+                scoreIndividualMax = roleScore
+              }
+            }
+          }
         }
       }
 

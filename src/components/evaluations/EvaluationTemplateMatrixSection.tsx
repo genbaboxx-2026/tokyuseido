@@ -47,7 +47,7 @@ interface EvaluationTemplateMatrixSectionProps {
 
 export function EvaluationTemplateMatrixSection({ companyId }: EvaluationTemplateMatrixSectionProps) {
   const queryClient = useQueryClient()
-  const [selectedCell, setSelectedCell] = useState<GradeRoleData | null>(null)
+  const [selectedJobTypeId, setSelectedJobTypeId] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
   const [isEmployeeDialogOpen, setIsEmployeeDialogOpen] = useState(false)
@@ -128,9 +128,17 @@ export function EvaluationTemplateMatrixSection({ companyId }: EvaluationTemplat
   }, [rolesData])
 
   const handleCellClick = (data: GradeRoleData) => {
-    setSelectedCell(data)
+    setSelectedJobTypeId(data.config.jobType.id)
     setIsDialogOpen(true)
   }
+
+  // 選択された職種の全等級データを取得
+  const selectedJobTypeRoles = useMemo(() => {
+    if (!selectedJobTypeId || !rolesData) return []
+    return rolesData
+      .filter((r) => r.config.jobType.id === selectedJobTypeId)
+      .sort((a, b) => b.config.grade.level - a.config.grade.level)
+  }, [selectedJobTypeId, rolesData])
 
   if (isLoading) {
     return (
@@ -200,28 +208,28 @@ export function EvaluationTemplateMatrixSection({ companyId }: EvaluationTemplat
           </CollapsibleTrigger>
           <CollapsibleContent>
             <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-sm">
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="border-collapse text-sm" style={{ minWidth: `${80 + jobTypes.length * 350}px` }}>
                   <thead>
-                    <tr className="border-b">
-                      <th className="text-left p-3 font-semibold bg-muted/50 sticky left-0 z-10 min-w-[80px]">
+                    <tr className="border-b bg-primary/10">
+                      <th className="text-left p-3 font-semibold sticky left-0 z-10 bg-primary/10 w-[80px] border-r">
                         等級
                       </th>
                       {jobTypes.map((jobType) => (
                         <th
                           key={jobType.id}
-                          className="text-center p-3 font-semibold bg-muted/50 min-w-[200px]"
+                          className="text-center p-3 font-semibold w-[350px] border-r last:border-r-0"
                         >
                           <div className="text-xs text-muted-foreground">{jobType.categoryName}</div>
-                          <div>{jobType.name}</div>
+                          <div className="text-base">{jobType.name}</div>
                         </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {grades.map((grade) => (
-                      <tr key={grade.id} className="border-b">
-                        <td className="p-3 font-medium bg-muted/30 sticky left-0 z-10">
+                      <tr key={grade.id} className="border-b hover:bg-muted/20">
+                        <td className="p-3 font-bold text-center bg-muted/30 sticky left-0 z-10 border-r">
                           {grade.name}
                         </td>
                         {jobTypes.map((jobType) => {
@@ -230,7 +238,7 @@ export function EvaluationTemplateMatrixSection({ companyId }: EvaluationTemplat
 
                           if (!data) {
                             return (
-                              <td key={jobType.id} className="p-3 text-center text-muted-foreground">
+                              <td key={jobType.id} className="p-3 text-center text-muted-foreground border-r last:border-r-0 bg-gray-50/50">
                                 -
                               </td>
                             )
@@ -250,62 +258,56 @@ export function EvaluationTemplateMatrixSection({ companyId }: EvaluationTemplat
                           const totalMaxScore = savedItems.reduce((sum, item) => sum + (item.maxScore ?? 5), 0)
 
                           return (
-                            <td key={jobType.id} className="p-3 align-top border-l">
+                            <td key={jobType.id} className="p-2 align-top border-r last:border-r-0">
                               <button
                                 type="button"
                                 onClick={() => handleCellClick(data)}
-                                className="w-full text-left p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group"
+                                className="w-full text-left p-3 rounded-lg border bg-white hover:bg-blue-50 hover:border-blue-300 transition-colors cursor-pointer group shadow-sm"
                               >
                                 <div className="space-y-2">
-                                  <div className="flex items-center gap-2 text-xs text-muted-foreground border-b pb-1">
-                                    <span>該当者: {employeeCount}名</span>
-                                    {hasSavedTemplate && (
-                                      templateStatus === "confirmed" ? (
-                                        <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-500 text-white text-[10px] px-1.5 py-0">
-                                          <CheckCircle className="h-3 w-3 mr-0.5" />
-                                          確定
-                                        </Badge>
-                                      ) : (
-                                        <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-100 text-[10px] px-1.5 py-0">
-                                          下書き
-                                        </Badge>
-                                      )
-                                    )}
-                                    <Edit className="h-3 w-3 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  <div className="flex items-center justify-between gap-2 text-xs border-b pb-2 mb-2">
+                                    <span className="text-muted-foreground font-medium">該当者: {employeeCount}名</span>
+                                    <div className="flex items-center gap-1">
+                                      {hasSavedTemplate && (
+                                        templateStatus === "confirmed" ? (
+                                          <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-500 text-white text-[10px] px-1.5 py-0">
+                                            <CheckCircle className="h-3 w-3 mr-0.5" />
+                                            確定
+                                          </Badge>
+                                        ) : (
+                                          <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-100 text-[10px] px-1.5 py-0">
+                                            下書き
+                                          </Badge>
+                                        )
+                                      )}
+                                      <Edit className="h-4 w-4 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    </div>
                                   </div>
                                   {hasSavedTemplate ? (
                                     <>
-                                      <div className="text-xs font-medium text-primary">
+                                      <div className="text-sm font-bold text-primary mb-2">
                                         {itemCount}項目 / {totalMaxScore}点満点
                                       </div>
-                                      <ol className="list-decimal list-inside space-y-1 text-sm">
-                                        {displayItems.slice(0, 2).map((item: string, idx: number) => (
-                                          <li key={idx} className="text-gray-700 dark:text-gray-300 truncate">
-                                            {item}
+                                      <ol className="space-y-1 text-sm">
+                                        {displayItems.map((item: string, idx: number) => (
+                                          <li key={idx} className="text-gray-700 dark:text-gray-300 flex">
+                                            <span className="text-muted-foreground mr-2 shrink-0">{idx + 1}.</span>
+                                            <span>{item}</span>
                                           </li>
                                         ))}
-                                        {displayItems.length > 2 && (
-                                          <li className="text-muted-foreground">
-                                            他 {displayItems.length - 2} 件...
-                                          </li>
-                                        )}
                                       </ol>
                                     </>
                                   ) : hasItems ? (
-                                    <ol className="list-decimal list-inside space-y-1 text-sm">
-                                      {displayItems.slice(0, 3).map((item: string, idx: number) => (
-                                        <li key={idx} className="text-gray-700 dark:text-gray-300 truncate">
-                                          {item}
+                                    <ol className="space-y-1 text-sm">
+                                      {displayItems.map((item: string, idx: number) => (
+                                        <li key={idx} className="text-gray-700 dark:text-gray-300 flex">
+                                          <span className="text-muted-foreground mr-2 shrink-0">{idx + 1}.</span>
+                                          <span>{item}</span>
                                         </li>
                                       ))}
-                                      {displayItems.length > 3 && (
-                                        <li className="text-muted-foreground">
-                                          他 {displayItems.length - 3} 件...
-                                        </li>
-                                      )}
                                     </ol>
                                   ) : (
-                                    <p className="text-muted-foreground text-sm">未設定</p>
+                                    <p className="text-muted-foreground text-sm italic">未設定</p>
                                   )}
                                 </div>
                               </button>
@@ -324,29 +326,32 @@ export function EvaluationTemplateMatrixSection({ companyId }: EvaluationTemplat
 
       <EvaluationTemplateDialog
         open={isDialogOpen}
-        onOpenChange={setIsDialogOpen}
-        data={selectedCell}
+        onOpenChange={(open) => {
+          setIsDialogOpen(open)
+          if (!open) setSelectedJobTypeId(null)
+        }}
+        allRoles={selectedJobTypeRoles}
         companyId={companyId}
         onSaved={() => {
           refetch()
           refetchTemplates()
         }}
-        onEmployeeClick={(emp) => {
+        onEmployeeClick={(emp, gradeRoleData) => {
           const employee: Employee = {
             id: emp.id,
             employeeCode: "",
             firstName: emp.firstName,
             lastName: emp.lastName,
-            grade: selectedCell?.config.grade ? {
-              id: selectedCell.config.grade.id,
-              name: selectedCell.config.grade.name,
+            grade: gradeRoleData?.config.grade ? {
+              id: gradeRoleData.config.grade.id,
+              name: gradeRoleData.config.grade.name,
             } : null,
-            jobType: selectedCell?.config.jobType ? {
-              id: selectedCell.config.jobType.id,
-              name: selectedCell.config.jobType.name,
+            jobType: gradeRoleData?.config.jobType ? {
+              id: gradeRoleData.config.jobType.id,
+              name: gradeRoleData.config.jobType.name,
             } : null,
-            gradeId: selectedCell?.config.gradeId,
-            jobTypeId: selectedCell?.config.jobTypeId,
+            gradeId: gradeRoleData?.config.gradeId,
+            jobTypeId: gradeRoleData?.config.jobTypeId,
           }
           setSelectedEmployee(employee)
           setIsEmployeeDialogOpen(true)

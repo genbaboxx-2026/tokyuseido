@@ -17,12 +17,12 @@ import type {
  * 従業員一覧を取得
  */
 export async function getEmployees(
-  query: EmployeeSearchQuery
+  query: EmployeeSearchQuery & { jobCategoryId?: string | string[] }
 ): Promise<EmployeeListResponse> {
   const {
     companyId,
     keyword,
-    departmentId,
+    jobCategoryId,
     employmentType,
     jobTypeId,
     gradeId,
@@ -47,16 +47,17 @@ export async function getEmployees(
     ];
   }
 
-  if (departmentId) {
-    where.departmentId = Array.isArray(departmentId) ? { in: departmentId } : departmentId;
-  }
-
   if (employmentType) {
     where.employmentType = Array.isArray(employmentType) ? { in: employmentType } : employmentType;
   }
 
   if (jobTypeId) {
     where.jobTypeId = Array.isArray(jobTypeId) ? { in: jobTypeId } : jobTypeId;
+  } else if (jobCategoryId) {
+    // jobTypeIdが指定されていない場合のみjobCategoryIdでフィルタ
+    where.jobType = {
+      jobCategoryId: Array.isArray(jobCategoryId) ? { in: jobCategoryId } : jobCategoryId,
+    };
   }
 
   if (gradeId) {
@@ -221,6 +222,19 @@ export async function getEmployeeById(
 export async function createEmployee(
   data: CreateEmployeeDto
 ): Promise<EmployeeWithRelations> {
+  // 等級名を取得して個別評価のデフォルト値を決定
+  let hasIndividualEvaluation = false
+  if (data.gradeId) {
+    const grade = await prisma.grade.findUnique({
+      where: { id: data.gradeId },
+      select: { name: true },
+    })
+    // 正1、正2、正3の場合は個別評価対象
+    if (grade && ["正1", "正2", "正3"].includes(grade.name)) {
+      hasIndividualEvaluation = true
+    }
+  }
+
   const employee = await prisma.employee.create({
     data: {
       companyId: data.companyId,
@@ -238,6 +252,8 @@ export async function createEmployee(
       currentStep: data.currentStep || null,
       currentRank: data.currentRank || null,
       baseSalary: data.baseSalary || null,
+      has360Evaluation: true, // 360度評価は全員デフォルトでチェック
+      hasIndividualEvaluation, // 個別評価は正1、正2、正3のみ
     },
     include: {
       department: {

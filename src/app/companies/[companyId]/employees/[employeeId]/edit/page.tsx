@@ -59,8 +59,8 @@ export default async function EditEmployeePage({ params }: PageProps) {
   }
 
   // マスターデータを取得
-  const [departments, grades, jobTypes, positions] = await Promise.all([
-    prisma.department.findMany({
+  const [jobCategories, grades, jobTypes, positions] = await Promise.all([
+    prisma.jobCategory.findMany({
       where: { companyId: employee.companyId },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
@@ -72,7 +72,7 @@ export default async function EditEmployeePage({ params }: PageProps) {
     }),
     prisma.jobType.findMany({
       where: { jobCategory: { companyId: employee.companyId } },
-      select: { id: true, name: true, jobCategory: { select: { name: true } } },
+      select: { id: true, name: true, jobCategoryId: true },
       orderBy: { name: "asc" },
     }),
     prisma.position.findMany({
@@ -89,6 +89,10 @@ export default async function EditEmployeePage({ params }: PageProps) {
     return d.toISOString().split("T")[0];
   };
 
+  // 従業員のjobTypeからjobCategoryIdを取得
+  const employeeJobType = jobTypes.find((j) => j.id === employee.jobTypeId);
+  const jobCategoryId = employeeJobType?.jobCategoryId || "";
+
   const initialData = {
     id: employee.id,
     employeeCode: employee.employeeCode,
@@ -97,7 +101,7 @@ export default async function EditEmployeePage({ params }: PageProps) {
     gender: employee.gender || "",
     birthDate: formatDateForInput(employee.birthDate),
     hireDate: formatDateForInput(employee.hireDate),
-    departmentId: employee.departmentId || "",
+    jobCategoryId,
     employmentType: employee.employmentType,
     jobTypeId: employee.jobTypeId || "",
     gradeId: employee.gradeId || "",
@@ -130,9 +134,9 @@ export default async function EditEmployeePage({ params }: PageProps) {
       {/* フォーム */}
       <EmployeeForm
         companyId={employee.companyId}
-        departments={departments.map((d) => ({
-          value: d.id,
-          label: d.name,
+        jobCategories={jobCategories.map((c) => ({
+          value: c.id,
+          label: c.name,
         }))}
         grades={grades.map((g) => ({
           value: g.id,
@@ -140,7 +144,8 @@ export default async function EditEmployeePage({ params }: PageProps) {
         }))}
         jobTypes={jobTypes.map((j) => ({
           value: j.id,
-          label: `${j.jobCategory.name} / ${j.name}`,
+          label: j.name,
+          jobCategoryId: j.jobCategoryId,
         }))}
         positions={positions.map((p) => ({
           value: p.id,

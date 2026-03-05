@@ -109,8 +109,8 @@ export function CompanySettingsSection({ companyId }: CompanySettingsSectionProp
   const [ranks, setRanks] = useState<ScoringRank[]>([])
   const [isScoringDirty, setIsScoringDirty] = useState(false)
 
-  // 従業員設定の状態
-  const [employeeWeights, setEmployeeWeights] = useState<Record<string, number>>({})
+  // 従業員設定の状態（入力中は空文字も許可）
+  const [employeeWeights, setEmployeeWeights] = useState<Record<string, number | string>>({})
   const [modifiedEmployees, setModifiedEmployees] = useState<Set<string>>(new Set())
 
   // 一括設定モーダル
@@ -231,7 +231,7 @@ export function CompanySettingsSection({ companyId }: CompanySettingsSectionProp
     mutationFn: async () => {
       const weights = Object.entries(employeeWeights).map(([employeeId, weight360]) => ({
         employeeId,
-        weight360,
+        weight360: typeof weight360 === "string" ? (parseInt(weight360, 10) || 0) : weight360,
       }))
       const res = await fetch(`/api/companies/${companyId}/employee-evaluation-weights`, {
         method: "PUT",
@@ -254,9 +254,10 @@ export function CompanySettingsSection({ companyId }: CompanySettingsSectionProp
     },
   })
 
-  // 下限値を変更
+  // 下限値を変更（半角数字のみ許可）
   const handleMinScoreChange = (index: number, value: string) => {
-    const numValue = parseFloat(value) || 0
+    const sanitized = value.replace(/[^0-9]/g, "")
+    const numValue = sanitized === "" ? 0 : Math.max(0, Math.min(100, parseInt(sanitized, 10)))
     const newRanks = [...ranks]
     newRanks[index].minScore = numValue
 
@@ -328,10 +329,30 @@ export function CompanySettingsSection({ companyId }: CompanySettingsSectionProp
   }
 
   // 従業員の360度割合を変更
-  const handleWeight360Change = (employeeId: string, value: number) => {
-    const clampedValue = Math.max(0, Math.min(100, value))
-    setEmployeeWeights((prev) => ({ ...prev, [employeeId]: clampedValue }))
+  const handleWeight360Change = (employeeId: string, value: string) => {
+    // 半角数字のみ許可
+    const sanitized = value.replace(/[^0-9]/g, "")
+    setEmployeeWeights((prev) => ({ ...prev, [employeeId]: sanitized }))
     setModifiedEmployees((prev) => new Set(prev).add(employeeId))
+  }
+
+  // 入力欄を離れた時に値を正規化（0-100の範囲）
+  const handleWeight360Blur = (employeeId: string) => {
+    const currentValue = employeeWeights[employeeId]
+    const numValue = typeof currentValue === "string" ? parseInt(currentValue, 10) : currentValue
+    const clampedValue = isNaN(numValue) ? 0 : Math.max(0, Math.min(100, numValue))
+    setEmployeeWeights((prev) => ({ ...prev, [employeeId]: clampedValue }))
+  }
+
+  // 数値として取得（表示用）
+  const getWeight360AsNumber = (employeeId: string, defaultValue: number): number => {
+    const val = employeeWeights[employeeId]
+    if (val === undefined) return defaultValue
+    if (typeof val === "string") {
+      const num = parseInt(val, 10)
+      return isNaN(num) ? 0 : num
+    }
+    return val
   }
 
   // 一括設定の等級チェックボックス切り替え
@@ -452,10 +473,9 @@ export function CompanySettingsSection({ companyId }: CompanySettingsSectionProp
                                   <span className="text-muted-foreground">0</span>
                                 ) : (
                                   <Input
-                                    type="number"
-                                    min="0"
-                                    max={100}
-                                    step="1"
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
                                     value={rank.minScore}
                                     onChange={(e) => handleMinScoreChange(index, e.target.value)}
                                     className="w-24"
@@ -579,14 +599,8 @@ export function CompanySettingsSection({ companyId }: CompanySettingsSectionProp
                       </TableRow>
                     ) : (
                       employees.map((emp) => {
-                        const isModified = modifiedEmployees.has(emp.id)
-                        const weight360 = employeeWeights[emp.id] ?? emp.weight360
-
                         return (
-                          <TableRow
-                            key={emp.id}
-                            className={isModified ? "bg-amber-50" : ""}
-                          >
+                          <TableRow key={emp.id}>
                             <TableCell className="text-sm text-muted-foreground text-center">
                               {emp.employeeNumber}
                             </TableCell>
@@ -609,14 +623,13 @@ export function CompanySettingsSection({ companyId }: CompanySettingsSectionProp
                             <TableCell className="text-center">
                               <div className="flex items-center justify-center gap-1">
                                 <Input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={weight360}
-                                  onChange={(e) =>
-                                    handleWeight360Change(emp.id, parseInt(e.target.value) || 0)
-                                  }
-                                  className="w-16 h-8"
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  value={employeeWeights[emp.id] ?? emp.weight360}
+                                  onChange={(e) => handleWeight360Change(emp.id, e.target.value)}
+                                  onBlur={() => handleWeight360Blur(emp.id)}
+                                  className="w-16 h-8 text-center"
                                 />
                                 <span className="text-sm">%</span>
                               </div>
@@ -634,7 +647,7 @@ export function CompanySettingsSection({ companyId }: CompanySettingsSectionProp
                               )}
                             </TableCell>
                             <TableCell className="text-center">
-                              <span>{100 - weight360}%</span>
+                              <span>{100 - getWeight360AsNumber(emp.id, emp.weight360)}%</span>
                             </TableCell>
                           </TableRow>
                         )
@@ -646,8 +659,6 @@ export function CompanySettingsSection({ companyId }: CompanySettingsSectionProp
 
               <p className="text-xs text-muted-foreground">
                 ※ 個別満点が「-」の従業員は個別評価テンプレートが未設定です
-                <br />
-                ※ 割合が変更された従業員は背景がハイライトされます
               </p>
             </div>
           )}
@@ -726,11 +737,15 @@ export function CompanySettingsSection({ companyId }: CompanySettingsSectionProp
               <Label>360度割合</Label>
               <div className="flex items-center gap-2">
                 <Input
-                  type="number"
-                  min={0}
-                  max={100}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={bulkWeight360}
-                  onChange={(e) => setBulkWeight360(parseInt(e.target.value) || 0)}
+                  onChange={(e) => {
+                    const sanitized = e.target.value.replace(/[^0-9]/g, "")
+                    const num = parseInt(sanitized, 10) || 0
+                    setBulkWeight360(Math.max(0, Math.min(100, num)))
+                  }}
                   className="w-24"
                 />
                 <span className="text-sm">%</span>

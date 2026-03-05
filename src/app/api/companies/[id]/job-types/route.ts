@@ -8,6 +8,52 @@ interface Params {
 }
 
 /**
+ * GET /api/companies/[id]/job-types
+ * 会社の職種一覧を取得
+ */
+export async function GET(request: NextRequest, { params }: Params) {
+  try {
+    const session = await auth();
+    if (!session) {
+      return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+    }
+
+    const { id: companyId } = await params;
+
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      return NextResponse.json({ error: '会社が見つかりません' }, { status: 404 });
+    }
+
+    const jobTypes = await prisma.jobType.findMany({
+      where: {
+        jobCategory: { companyId },
+      },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        jobCategoryId: true,
+        jobCategory: {
+          select: { name: true },
+        },
+      },
+    });
+
+    return NextResponse.json({ jobTypes });
+  } catch (error) {
+    console.error('GET /api/companies/[id]/job-types error:', error);
+    return NextResponse.json(
+      { error: 'サーバーエラーが発生しました' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * POST /api/companies/[id]/job-types
  * 職種小分類を作成
  */

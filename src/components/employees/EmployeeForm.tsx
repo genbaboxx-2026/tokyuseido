@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useForm, type SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +37,7 @@ const employeeFormSchema = z.object({
   gender: z.string().optional(),
   birthDate: z.string().optional(),
   hireDate: z.string().min(1, "入社日は必須です"),
-  departmentId: z.string().optional(),
+  jobCategoryId: z.string().optional(),
   employmentType: z.string().min(1, "雇用形態は必須です"),
   jobTypeId: z.string().optional(),
   gradeId: z.string().optional(),
@@ -63,7 +63,7 @@ interface EmployeeFormInput {
   gender?: string;
   birthDate?: string;
   hireDate: string;
-  departmentId?: string;
+  jobCategoryId?: string;
   employmentType: string;
   jobTypeId?: string;
   gradeId?: string;
@@ -78,11 +78,15 @@ interface SelectOption {
   label: string;
 }
 
+interface JobTypeOption extends SelectOption {
+  jobCategoryId: string;
+}
+
 interface EmployeeFormProps {
   companyId: string;
-  departments: SelectOption[];
+  jobCategories: SelectOption[];
   grades: SelectOption[];
-  jobTypes: SelectOption[];
+  jobTypes: JobTypeOption[];
   positions: SelectOption[];
   initialData?: Partial<EmployeeFormInput & { id: string }>;
   isEdit?: boolean;
@@ -91,7 +95,7 @@ interface EmployeeFormProps {
 
 export function EmployeeForm({
   companyId,
-  departments,
+  jobCategories,
   grades,
   jobTypes,
   positions,
@@ -112,7 +116,7 @@ export function EmployeeForm({
       gender: initialData?.gender || "",
       birthDate: initialData?.birthDate || "",
       hireDate: initialData?.hireDate || "",
-      departmentId: initialData?.departmentId || "",
+      jobCategoryId: initialData?.jobCategoryId || "",
       employmentType: initialData?.employmentType || "",
       jobTypeId: initialData?.jobTypeId || "",
       gradeId: initialData?.gradeId || "",
@@ -122,6 +126,26 @@ export function EmployeeForm({
       baseSalary: initialData?.baseSalary ?? "",
     },
   });
+
+  // 選択された部署に基づいて職種をフィルタリング
+  const selectedJobCategoryId = form.watch("jobCategoryId");
+  const filteredJobTypes = useMemo(() => {
+    if (!selectedJobCategoryId) return jobTypes;
+    return jobTypes.filter((jt) => jt.jobCategoryId === selectedJobCategoryId);
+  }, [selectedJobCategoryId, jobTypes]);
+
+  // 部署が変更されたときに職種をクリア
+  const handleJobCategoryChange = (value: string) => {
+    form.setValue("jobCategoryId", value);
+    // 現在選択中の職種が新しい部署に属していない場合はクリア
+    const currentJobTypeId = form.getValues("jobTypeId");
+    if (currentJobTypeId) {
+      const jobType = jobTypes.find((jt) => jt.value === currentJobTypeId);
+      if (jobType && jobType.jobCategoryId !== value) {
+        form.setValue("jobTypeId", "");
+      }
+    }
+  };
 
   const onSubmit: SubmitHandler<EmployeeFormInput> = async (data) => {
     setIsSubmitting(true);
@@ -143,7 +167,6 @@ export function EmployeeForm({
           companyId,
           gender: data.gender || null,
           birthDate: data.birthDate || null,
-          departmentId: data.departmentId || null,
           jobTypeId: data.jobTypeId || null,
           gradeId: data.gradeId || null,
           positionId: data.positionId || null,
@@ -293,20 +316,20 @@ export function EmployeeForm({
           <CardContent className="grid gap-4 md:grid-cols-2">
             <FormField
               control={form.control}
-              name="departmentId"
+              name="jobCategoryId"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>部署</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={handleJobCategoryChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="選択してください" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {departments.map((dept) => (
-                        <SelectItem key={dept.value} value={dept.value}>
-                          {dept.label}
+                      {jobCategories.map((cat) => (
+                        <SelectItem key={cat.value} value={cat.value}>
+                          {cat.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -349,14 +372,18 @@ export function EmployeeForm({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>職種</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                    disabled={filteredJobTypes.length === 0}
+                  >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="選択してください" />
+                        <SelectValue placeholder={filteredJobTypes.length === 0 ? "部署を先に選択してください" : "選択してください"} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {jobTypes.map((jt) => (
+                      {filteredJobTypes.map((jt) => (
                         <SelectItem key={jt.value} value={jt.value}>
                           {jt.label}
                         </SelectItem>

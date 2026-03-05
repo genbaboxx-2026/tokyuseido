@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import {
   Dialog,
   DialogContent,
@@ -11,14 +11,15 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
+import { Badge } from "@/components/ui/badge"
 import {
   Sparkles,
   Plus,
   Trash2,
   CheckCircle,
   UserCircle,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react"
 
 // 役割責任を評価項目に変換するユーティリティ
@@ -49,6 +50,19 @@ interface SimpleEmployee {
 interface TemplateItem {
   name: string
   maxScore: number
+}
+
+// 等級ごとのテンプレート状態
+interface GradeTemplateState {
+  gradeId: string
+  gradeName: string
+  gradeLevel: number
+  configId: string
+  items: TemplateItem[]
+  employees: SimpleEmployee[]
+  isExpanded: boolean
+  isSaving: boolean
+  templateId: string | null
 }
 
 // 役割責任型
@@ -87,123 +101,157 @@ export interface GradeRoleData {
 interface EvaluationTemplateDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  data: GradeRoleData | null
+  allRoles: GradeRoleData[]
   companyId: string
   onSaved?: () => void
-  onEmployeeClick?: (employee: SimpleEmployee) => void
+  onEmployeeClick?: (employee: SimpleEmployee, gradeRoleData: GradeRoleData) => void
 }
 
 export function EvaluationTemplateDialog({
   open,
   onOpenChange,
-  data,
+  allRoles,
   companyId,
   onSaved,
   onEmployeeClick,
 }: EvaluationTemplateDialogProps) {
-  const [items, setItems] = useState<TemplateItem[]>([])
+  const [gradeStates, setGradeStates] = useState<GradeTemplateState[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [templateId, setTemplateId] = useState<string | null>(null)
 
-  const responsibilities = data?.role?.responsibilities || []
+  const jobTypeName = allRoles[0]?.config.jobType.name || ""
+  const categoryName = allRoles[0]?.config.jobType.jobCategory.name || ""
 
-  const loadTemplate = async () => {
-    if (!data || !companyId) return
+  // テンプレートを読み込み
+  const loadTemplates = useCallback(async () => {
+    if (!companyId || allRoles.length === 0) return
 
     setIsLoading(true)
     try {
       const res = await fetch(`/api/companies/${companyId}/evaluation-templates`)
-      if (res.ok) {
-        const templates = await res.json()
-        const template = templates.find(
-          (t: { gradeJobTypeConfig: { id: string }; id: string; items: Array<{ name: string; maxScore?: number }> }) =>
-            t.gradeJobTypeConfig.id === data.config.id
-        )
+      const templates = res.ok ? await res.json() : []
+      const templatesMap = new Map<string, { id: string; items: Array<{ name: string; maxScore?: number }> }>()
+      templates.forEach((t: { gradeJobTypeConfig: { id: string }; id: string; items: Array<{ name: string; maxScore?: number }> }) => {
+        templatesMap.set(t.gradeJobTypeConfig.id, t)
+      })
+
+      const states: GradeTemplateState[] = allRoles.map((role) => {
+        const template = templatesMap.get(role.config.id)
+        const responsibilities = role.role?.responsibilities || []
+
+        let items: TemplateItem[]
         if (template && template.items.length > 0) {
-          setItems(template.items.map((item: { name: string; maxScore?: number }) => ({
+          items = template.items.map((item) => ({
             name: item.name,
             maxScore: item.maxScore ?? 5,
-          })))
-          setTemplateId(template.id)
+          }))
+        } else if (responsibilities.length > 0) {
+          items = responsibilities.map((r) => ({
+            name: convertToEvaluationItem(r),
+            maxScore: 5,
+          }))
         } else {
-          if (responsibilities.length > 0) {
-            setItems(responsibilities.map(r => ({
-              name: convertToEvaluationItem(r),
-              maxScore: 5,
-            })))
-          } else {
-            setItems([{ name: "", maxScore: 5 }])
-          }
-          setTemplateId(null)
+          items = [{ name: "", maxScore: 5 }]
         }
-      }
+
+        return {
+          gradeId: role.config.grade.id,
+          gradeName: role.config.grade.name,
+          gradeLevel: role.config.grade.level,
+          configId: role.config.id,
+          items,
+          employees: role.employees,
+          isExpanded: true,
+          isSaving: false,
+          templateId: template?.id || null,
+        }
+      })
+
+      setGradeStates(states.sort((a, b) => b.gradeLevel - a.gradeLevel))
     } catch (error) {
       console.error("テンプレート読み込みエラー:", error)
-      if (responsibilities.length > 0) {
-        setItems(responsibilities.map(r => ({
-          name: convertToEvaluationItem(r),
-          maxScore: 5,
-        })))
-      } else {
-        setItems([{ name: "", maxScore: 5 }])
-      }
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [companyId, allRoles])
 
-  if (open && items.length === 0 && !isLoading) {
-    loadTemplate()
-  }
-
-  if (!open && items.length > 0) {
-    setItems([])
-    setTemplateId(null)
-  }
-
-  const handleEditItemName = (index: number, value: string) => {
-    const newItems = [...items]
-    newItems[index] = { ...newItems[index], name: value }
-    setItems(newItems)
-  }
-
-  const handleEditItemMaxScore = (index: number, value: number) => {
-    const newItems = [...items]
-    newItems[index] = { ...newItems[index], maxScore: value }
-    setItems(newItems)
-  }
-
-  const handleAddItem = () => {
-    setItems([...items, { name: "", maxScore: 5 }])
-  }
-
-  const handleRemoveItem = (index: number) => {
-    if (items.length > 1) {
-      const newItems = items.filter((_, i) => i !== index)
-      setItems(newItems)
+  useEffect(() => {
+    if (open && allRoles.length > 0) {
+      loadTemplates()
     }
+    if (!open) {
+      setGradeStates([])
+    }
+  }, [open, allRoles, loadTemplates])
+
+  const toggleExpand = (gradeId: string) => {
+    setGradeStates((prev) =>
+      prev.map((s) => (s.gradeId === gradeId ? { ...s, isExpanded: !s.isExpanded } : s))
+    )
   }
 
-  const totalMaxScore = items.reduce((sum, item) => sum + item.maxScore, 0)
+  const handleEditItemName = (gradeId: string, index: number, value: string) => {
+    setGradeStates((prev) =>
+      prev.map((s) => {
+        if (s.gradeId !== gradeId) return s
+        const newItems = [...s.items]
+        newItems[index] = { ...newItems[index], name: value }
+        return { ...s, items: newItems }
+      })
+    )
+  }
 
-  const handleSave = async (status: "draft" | "confirmed") => {
-    if (!data) return
+  const handleEditItemMaxScore = (gradeId: string, index: number, value: number) => {
+    setGradeStates((prev) =>
+      prev.map((s) => {
+        if (s.gradeId !== gradeId) return s
+        const newItems = [...s.items]
+        newItems[index] = { ...newItems[index], maxScore: value }
+        return { ...s, items: newItems }
+      })
+    )
+  }
 
-    const validItems = items.filter(item => item.name.trim() !== "")
+  const handleAddItem = (gradeId: string) => {
+    setGradeStates((prev) =>
+      prev.map((s) => {
+        if (s.gradeId !== gradeId) return s
+        return { ...s, items: [...s.items, { name: "", maxScore: 5 }] }
+      })
+    )
+  }
+
+  const handleRemoveItem = (gradeId: string, index: number) => {
+    setGradeStates((prev) =>
+      prev.map((s) => {
+        if (s.gradeId !== gradeId) return s
+        if (s.items.length <= 1) return s
+        return { ...s, items: s.items.filter((_, i) => i !== index) }
+      })
+    )
+  }
+
+  const handleSave = async (gradeId: string, status: "draft" | "confirmed") => {
+    const state = gradeStates.find((s) => s.gradeId === gradeId)
+    if (!state) return
+
+    const validItems = state.items.filter((item) => item.name.trim() !== "")
     if (validItems.length === 0) {
       alert("評価項目を1つ以上入力してください")
       return
     }
 
-    setIsSaving(true)
+    setGradeStates((prev) =>
+      prev.map((s) => (s.gradeId === gradeId ? { ...s, isSaving: true } : s))
+    )
+
     try {
+      const roleData = allRoles.find((r) => r.config.grade.id === gradeId)
       const res = await fetch(`/api/companies/${companyId}/evaluation-templates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          gradeJobTypeConfigId: data.config.id,
-          name: `${data.config.grade.name} × ${data.config.jobType.name} 評価テンプレート`,
+          gradeJobTypeConfigId: state.configId,
+          name: `${state.gradeName} × ${jobTypeName} 評価テンプレート`,
           status,
           items: validItems.map((item, index) => ({
             name: item.name,
@@ -220,122 +268,183 @@ export function EvaluationTemplateDialog({
       }
 
       onSaved?.()
-      onOpenChange(false)
     } catch (error) {
       console.error("評価テンプレート保存エラー:", error)
       alert(error instanceof Error ? error.message : "保存に失敗しました")
     } finally {
-      setIsSaving(false)
+      setGradeStates((prev) =>
+        prev.map((s) => (s.gradeId === gradeId ? { ...s, isSaving: false } : s))
+      )
     }
   }
 
-  if (!data) return null
+  if (allRoles.length === 0) return null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
-        <DialogHeader className="shrink-0">
+      <DialogContent className="!max-w-[calc(100vw-80px)] w-[calc(100vw-80px)] h-[90vh] flex flex-col p-0">
+        <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b">
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-yellow-500" />
             評価テンプレート
           </DialogTitle>
           <DialogDescription>
-            {data.config.grade.name} × {data.config.jobType.name}
+            {categoryName} / {jobTypeName} - 全等級
           </DialogDescription>
         </DialogHeader>
 
-        <div className="border rounded-lg overflow-hidden flex-1 min-h-0 flex flex-col">
-          <div className="flex items-center gap-2 p-3 bg-muted/50 border-b text-sm font-medium shrink-0">
-            <span className="w-10 text-center">No</span>
-            <span className="flex-1">項目名</span>
-            <span className="w-20 text-center">満点</span>
-            <span className="w-10"></span>
-          </div>
-          <div className="flex-1 overflow-y-auto min-h-[200px] max-h-[300px]">
-            <div className="divide-y">
-              {items.map((item, index) => (
-                <div key={index} className="flex items-start gap-2 p-3">
-                  <span className="text-sm font-medium text-muted-foreground w-10 text-center pt-2">
-                    {index + 1}
-                  </span>
-                  <Textarea
-                    value={item.name}
-                    onChange={(e) => handleEditItemName(index, e.target.value)}
-                    className="flex-1 min-h-[60px] text-sm resize-y"
-                    placeholder="評価項目を入力"
-                    rows={2}
-                    disabled={isSaving}
-                  />
-                  <Input
-                    type="number"
-                    min="0"
-                    value={item.maxScore}
-                    onChange={(e) => handleEditItemMaxScore(index, parseInt(e.target.value) || 0)}
-                    className="w-20 text-center"
-                    disabled={isSaving}
-                  />
-                  <div className="w-10 flex justify-center">
-                    {items.length > 1 && (
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {isLoading ? (
+            <div className="text-center py-8 text-muted-foreground">読み込み中...</div>
+          ) : (
+            gradeStates.map((state) => {
+              const totalMaxScore = state.items.reduce((sum, item) => sum + item.maxScore, 0)
+              const roleData = allRoles.find((r) => r.config.grade.id === state.gradeId)
+
+              return (
+                <div key={state.gradeId} className="border rounded-lg overflow-hidden">
+                  {/* 等級ヘッダー */}
+                  <div className="w-full flex items-center justify-between p-3 bg-muted/50">
+                    <div
+                      className="flex items-center gap-3 cursor-pointer hover:opacity-70 transition-opacity flex-1"
+                      onClick={() => toggleExpand(state.gradeId)}
+                    >
+                      {state.isExpanded ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                      <span className="font-bold text-lg">{state.gradeName}</span>
+                      <Badge variant="secondary" className="text-xs">
+                        {state.items.length}項目 / {totalMaxScore}点満点
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        ({state.employees.length}名)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="shrink-0 text-muted-foreground hover:text-destructive"
-                        onClick={() => handleRemoveItem(index)}
-                        disabled={isSaving}
+                        onClick={() => handleSave(state.gradeId, "draft")}
+                        disabled={state.isSaving}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        {state.isSaving ? "..." : "保存"}
                       </Button>
-                    )}
+                      <Button
+                        size="sm"
+                        onClick={() => handleSave(state.gradeId, "confirmed")}
+                        disabled={state.isSaving}
+                      >
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        確定
+                      </Button>
+                    </div>
                   </div>
+
+                  {/* 項目一覧 */}
+                  {state.isExpanded && (
+                    <div className="p-3 space-y-2">
+                      {/* ヘッダー */}
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground px-1">
+                        <span className="w-6 text-center">No</span>
+                        <span className="flex-1">項目名</span>
+                        <span className="w-14 text-center">満点</span>
+                        <span className="w-8"></span>
+                      </div>
+
+                      {/* 項目リスト */}
+                      {state.items.map((item, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground w-6 text-center">
+                            {index + 1}
+                          </span>
+                          <Input
+                            value={item.name}
+                            onChange={(e) =>
+                              handleEditItemName(state.gradeId, index, e.target.value)
+                            }
+                            className="flex-1 h-8 text-sm"
+                            placeholder="評価項目を入力"
+                            disabled={state.isSaving}
+                          />
+                          <Input
+                            type="number"
+                            min="0"
+                            value={item.maxScore}
+                            onChange={(e) =>
+                              handleEditItemMaxScore(
+                                state.gradeId,
+                                index,
+                                parseInt(e.target.value) || 0
+                              )
+                            }
+                            className="w-14 h-8 text-center text-sm"
+                            disabled={state.isSaving}
+                          />
+                          <div className="w-8 flex justify-center">
+                            {state.items.length > 1 && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                onClick={() => handleRemoveItem(state.gradeId, index)}
+                                disabled={state.isSaving}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* 項目追加 & 該当者 */}
+                      <div className="flex items-center justify-between pt-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => handleAddItem(state.gradeId)}
+                          disabled={state.isSaving}
+                        >
+                          <Plus className="h-3 w-3 mr-1" />
+                          項目追加
+                        </Button>
+
+                        {state.employees.length > 0 && roleData && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-muted-foreground mr-1">該当者:</span>
+                            {state.employees.slice(0, 3).map((emp) => (
+                              <Button
+                                key={emp.id}
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs px-1"
+                                onClick={() => onEmployeeClick?.(emp, roleData)}
+                              >
+                                <UserCircle className="h-3 w-3 mr-0.5" />
+                                {emp.lastName}
+                              </Button>
+                            ))}
+                            {state.employees.length > 3 && (
+                              <span className="text-xs text-muted-foreground">
+                                他{state.employees.length - 3}名
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center justify-end gap-4 p-3 bg-muted/50 border-t shrink-0">
-            <span className="text-sm font-medium">合計:</span>
-            <span className="text-lg font-bold text-primary">{totalMaxScore}点満点</span>
-          </div>
+              )
+            })
+          )}
         </div>
 
-        <div className="flex justify-center shrink-0">
-          <Button variant="outline" size="sm" onClick={handleAddItem} disabled={isSaving}>
-            <Plus className="h-4 w-4 mr-1" />
-            項目を追加
-          </Button>
-        </div>
-
-        {data.employees.length > 0 && (
-          <div className="border-t pt-3 shrink-0 max-h-[100px] overflow-y-auto">
-            <Label className="text-sm font-medium">
-              該当者 ({data.employees.length}名)
-            </Label>
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {data.employees.map((emp) => (
-                <Button
-                  key={emp.id}
-                  variant="outline"
-                  size="sm"
-                  className="h-6 text-xs px-2"
-                  onClick={() => onEmployeeClick?.(emp)}
-                >
-                  <UserCircle className="h-3 w-3 mr-1" />
-                  {emp.lastName} {emp.firstName}
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <DialogFooter className="shrink-0 flex-row justify-center gap-2 pt-2">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={isSaving}>
+        <DialogFooter className="flex-shrink-0 border-t p-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             閉じる
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => handleSave("draft")} disabled={isSaving}>
-            {isSaving ? "..." : "保存"}
-          </Button>
-          <Button size="sm" onClick={() => handleSave("confirmed")} disabled={isSaving}>
-            <CheckCircle className="h-4 w-4 mr-1" />
-            {isSaving ? "..." : "確定"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -199,7 +199,7 @@ function CategoryTable({
       {category.isExpanded && (
         <>
           {/* テーブルヘッダー */}
-          <div className="grid grid-cols-[50px_1fr_70px_40px] bg-gray-100 border-t border-gray-200">
+          <div className="grid grid-cols-[50px_1fr_80px_40px] bg-gray-100 border-t border-gray-200">
             <div className="px-3 py-2 text-xs font-semibold text-gray-600 text-center border-r border-gray-200">
               No
             </div>
@@ -216,7 +216,7 @@ function CategoryTable({
           {category.items.map((item, itemIndex) => (
             <div
               key={itemIndex}
-              className="grid grid-cols-[50px_1fr_70px_40px] border-t border-gray-200 hover:bg-gray-50"
+              className="grid grid-cols-[50px_1fr_80px_40px] border-t border-gray-200 hover:bg-gray-50"
             >
               <div className="px-3 py-2 text-sm text-gray-600 text-center border-r border-gray-200 flex items-center justify-center">
                 {getGlobalItemNumber(catIndex, itemIndex)}
@@ -236,7 +236,7 @@ function CategoryTable({
                   max={100}
                   value={item.maxScore}
                   onChange={(e) => onItemMaxScoreChange(catIndex, itemIndex, parseInt(e.target.value) || 0)}
-                  className="w-14 h-8 text-sm text-center border-gray-200"
+                  className="w-16 h-8 text-sm text-center border-gray-200"
                 />
               </div>
               <div className="flex items-center justify-center">
@@ -254,7 +254,7 @@ function CategoryTable({
           ))}
 
           {/* 項目追加行 + カテゴリ合計 */}
-          <div className="grid grid-cols-[50px_1fr_70px_40px] border-t border-gray-200 bg-gray-50">
+          <div className="grid grid-cols-[50px_1fr_80px_40px] border-t border-gray-200 bg-gray-50">
             <div className="col-span-2 px-3 py-2 flex items-center">
               <Button
                 variant="ghost"

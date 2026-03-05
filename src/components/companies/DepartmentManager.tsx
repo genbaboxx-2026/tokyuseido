@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,13 +24,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Form,
   FormControl,
   FormField,
@@ -37,14 +31,18 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import { departmentSchema, DepartmentFormData } from '@/lib/company/validation';
 import { COMPANY_LABELS } from '@/lib/company/constants';
+
+// シンプルな部署スキーマ（親部署なし）
+const simpleDepartmentSchema = z.object({
+  name: z.string().min(1, '部署名は必須です'),
+});
+
+type SimpleDepartmentFormData = z.infer<typeof simpleDepartmentSchema>;
 
 interface Department {
   id: string;
   name: string;
-  parentId: string | null;
-  parent?: { id: string; name: string } | null;
 }
 
 interface DepartmentManagerProps {
@@ -59,17 +57,16 @@ export function DepartmentManager({ companyId, departments }: DepartmentManagerP
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const form = useForm<DepartmentFormData>({
-    resolver: zodResolver(departmentSchema),
+  const form = useForm<SimpleDepartmentFormData>({
+    resolver: zodResolver(simpleDepartmentSchema),
     defaultValues: {
       name: '',
-      parentId: null,
     },
   });
 
   const openCreateDialog = () => {
     setEditingDepartment(null);
-    form.reset({ name: '', parentId: null });
+    form.reset({ name: '' });
     setError(null);
     setIsDialogOpen(true);
   };
@@ -78,7 +75,6 @@ export function DepartmentManager({ companyId, departments }: DepartmentManagerP
     setEditingDepartment(department);
     form.reset({
       name: department.name,
-      parentId: department.parentId,
     });
     setError(null);
     setIsDialogOpen(true);
@@ -91,7 +87,7 @@ export function DepartmentManager({ companyId, departments }: DepartmentManagerP
     setError(null);
   };
 
-  const onSubmit = async (data: DepartmentFormData) => {
+  const onSubmit = async (data: SimpleDepartmentFormData) => {
     setIsSubmitting(true);
     setError(null);
 
@@ -104,7 +100,7 @@ export function DepartmentManager({ companyId, departments }: DepartmentManagerP
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ name: data.name, parentId: null }),
       });
 
       if (!response.ok) {
@@ -141,12 +137,6 @@ export function DepartmentManager({ companyId, departments }: DepartmentManagerP
     }
   };
 
-  // 自分自身と子孫を除いた部署リスト（親部署選択用）
-  const getAvailableParents = (excludeId?: string) => {
-    if (!excludeId) return departments;
-    return departments.filter((d) => d.id !== excludeId);
-  };
-
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -163,17 +153,15 @@ export function DepartmentManager({ companyId, departments }: DepartmentManagerP
             <TableHeader>
               <TableRow>
                 <TableHead>{COMPANY_LABELS.DEPARTMENT}</TableHead>
-                <TableHead>{COMPANY_LABELS.PARENT_DEPARTMENT}</TableHead>
-                <TableHead className="w-[120px]">{COMPANY_LABELS.ACTIONS}</TableHead>
+                <TableHead className="w-[150px] text-right">{COMPANY_LABELS.ACTIONS}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {departments.map((department) => (
                 <TableRow key={department.id}>
                   <TableCell>{department.name}</TableCell>
-                  <TableCell>{department.parent?.name || COMPANY_LABELS.NONE}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
+                  <TableCell className="text-right">
+                    <div className="flex gap-2 justify-end">
                       <Button
                         variant="outline"
                         size="sm"
@@ -226,37 +214,6 @@ export function DepartmentManager({ companyId, departments }: DepartmentManagerP
                       <FormControl>
                         <Input {...field} placeholder="営業部" />
                       </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="parentId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{COMPANY_LABELS.PARENT_DEPARTMENT}</FormLabel>
-                      <Select
-                        onValueChange={(value) =>
-                          field.onChange(value === 'none' ? null : value)
-                        }
-                        value={field.value || 'none'}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="親部署を選択" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="none">{COMPANY_LABELS.NONE}</SelectItem>
-                          {getAvailableParents(editingDepartment?.id).map((dept) => (
-                            <SelectItem key={dept.id} value={dept.id}>
-                              {dept.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
