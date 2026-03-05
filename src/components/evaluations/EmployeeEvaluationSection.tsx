@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useState, useEffect, useCallback } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import dynamic from "next/dynamic"
 import {
   Card,
@@ -57,6 +57,7 @@ export interface Employee {
   jobTypeId?: string | null
   has360Evaluation?: boolean
   hasIndividualEvaluation?: boolean
+  evaluator360Ids?: string[]
 }
 
 // 評価ステータス型
@@ -71,6 +72,7 @@ export function EmployeeEvaluationSection({
   companyId,
   evaluationType,
 }: EmployeeEvaluationSectionProps) {
+  const queryClient = useQueryClient()
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
   const [isItemsDialogOpen, setIsItemsDialogOpen] = useState(false)
   const [employeeStatuses, setEmployeeStatuses] = useState<Record<string, EvaluationStatusType>>({})
@@ -78,6 +80,8 @@ export function EmployeeEvaluationSection({
   const [evaluators, setEvaluators] = useState<Record<string, (string | null)[]>>({})
   // 個別評価の評価者設定 (employeeId -> evaluatorId)
   const [individualEvaluators, setIndividualEvaluators] = useState<Record<string, string | null>>({})
+  // リアルタイムプレビュー用のスコア（モーダル編集中）
+  const [previewScores, setPreviewScores] = useState<Record<string, number>>({})
 
   const { data: employees, isLoading } = useQuery<Employee[]>({
     queryKey: ["employees", companyId],
@@ -120,6 +124,7 @@ export function EmployeeEvaluationSection({
     maxScores360: Record<string, number>
     maxScoresIndividual: Record<string, number>
     maxScorePerItem: number
+    _debug?: unknown
   }>({
     queryKey: ["evaluationMaxScores", companyId],
     queryFn: async () => {
@@ -127,20 +132,90 @@ export function EmployeeEvaluationSection({
       if (!res.ok) {
         return { maxScores360: {}, maxScoresIndividual: {}, maxScorePerItem: 5 }
       }
-      return res.json()
+      const data = await res.json()
+      // デバッグ: コンソールに出力
+      if (data._debug) {
+        console.log("[満点デバッグ]", data._debug)
+        console.log("[満点データ] maxScoresIndividual:", data.maxScoresIndividual)
+      }
+      return data
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   })
 
-  // 評価タイプに応じた満点を取得
+  // 評価タイプに応じた満点を取得（プレビュースコアがあればそちらを優先）
   const getMaxScore = (employeeId: string): number => {
+    // プレビュースコアがあればそちらを使用（リアルタイム更新）
+    if (previewScores[employeeId] !== undefined) {
+      return previewScores[employeeId]
+    }
     if (evaluationType === "360") {
       return maxScoresData?.maxScores360?.[employeeId] ?? 0
     } else {
       return maxScoresData?.maxScoresIndividual?.[employeeId] ?? 0
     }
   }
+
+  // モーダルからのスコア変更を受け取る（リアルタイム更新）
+  const handleScoreChange = useCallback((employeeId: string, totalScore: number) => {
+    setPreviewScores((prev) => ({ ...prev, [employeeId]: totalScore }))
+  }, [])
+
+  // モーダルが閉じたときにプレビュースコアをクリアしてキャッシュを更新
+  const handleDialogClose = useCallback((open: boolean) => {
+    setIsItemsDialogOpen(open)
+    if (!open) {
+      // モーダルが閉じたらプレビュースコアをクリア
+      setPreviewScores({})
+      // キャッシュを更新して最新データを取得
+      queryClient.invalidateQueries({ queryKey: ["evaluationMaxScores", companyId] })
+    }
+  }, [companyId, queryClient])
+
+  // 評価ステータスをDBから取得
+  const { data: dbStatuses } = useQuery<Array<{ employeeId: string; status: string }>>({
+    queryKey: ["evaluationStatuses", companyId, evaluationType],
+    queryFn: async () => {
+      const type = evaluationType === "360" ? "360" : "individual"
+      const res = await fetch(`/api/employees/evaluation-statuses?companyId=${companyId}&type=${type}`)
+      if (!res.ok) return []
+      return res.json()
+    },
+    staleTime: 30 * 1000, // 30秒キャッシュ
+    gcTime: 60 * 1000,
+  })
+
+  // DBから取得したステータスをローカルステートに同期
+  useEffect(() => {
+    if (dbStatuses && dbStatuses.length > 0) {
+      const statusMap: Record<string, EvaluationStatusType> = {}
+      dbStatuses.forEach((item) => {
+        statusMap[item.employeeId] = item.status as EvaluationStatusType
+      })
+      setEmployeeStatuses((prev) => ({ ...prev, ...statusMap }))
+    }
+  }, [dbStatuses])
+
+  // 従業員データから評価者を同期（DBが常に最新）
+  useEffect(() => {
+    if (employees && employees.length > 0) {
+      const dbEvaluators: Record<string, (string | null)[]> = {}
+      employees.forEach((emp) => {
+        // DBから取得した評価者IDを5枠の配列に変換
+        const evaluatorSlots: (string | null)[] = [null, null, null, null, null]
+        if (emp.evaluator360Ids && emp.evaluator360Ids.length > 0) {
+          emp.evaluator360Ids.forEach((id, idx) => {
+            if (idx < 5) {
+              evaluatorSlots[idx] = id
+            }
+          })
+        }
+        dbEvaluators[emp.id] = evaluatorSlots
+      })
+      setEvaluators(dbEvaluators)
+    }
+  }, [employees])
 
   const handleViewItems = (employee: Employee) => {
     setSelectedEmployee(employee)
@@ -152,20 +227,46 @@ export function EmployeeEvaluationSection({
     const previousStatus = employeeStatuses[employeeId]
     setEmployeeStatuses((prev) => ({ ...prev, [employeeId]: newStatus }))
 
-    // バックグラウンドでAPI呼び出し
-    fetch(`/api/employees/${employeeId}/evaluation-items`, {
+    // 評価タイプに応じて適切なAPIエンドポイントを呼び出す
+    const apiUrl = evaluationType === "360"
+      ? `/api/employees/${employeeId}/evaluation-360-status`
+      : `/api/employees/${employeeId}/evaluation-items`
+
+    fetch(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
-    }).catch(() => {
-      // エラー時は元に戻す
-      setEmployeeStatuses((prev) => ({ ...prev, [employeeId]: previousStatus || "NOT_STARTED" }))
     })
+      .then((res) => {
+        if (res.ok) {
+          // 成功したらキャッシュを無効化（親コンポーネントのタブ表示更新のため）
+          queryClient.invalidateQueries({ queryKey: ["evaluationStatuses", companyId] })
+        }
+      })
+      .catch(() => {
+        // エラー時は元に戻す
+        setEmployeeStatuses((prev) => ({ ...prev, [employeeId]: previousStatus || "NOT_STARTED" }))
+      })
   }
 
   const handleDialogStatusChange = (employeeId: string, status: EvaluationStatusType) => {
     setEmployeeStatuses((prev) => ({ ...prev, [employeeId]: status }))
   }
+
+  // 評価者をDBに保存
+  const saveEvaluatorsToDb = useCallback(async (employeeId: string, evaluatorIds: (string | null)[]) => {
+    // nullを除いた有効なIDのみを保存
+    const validIds = evaluatorIds.filter((id): id is string => id !== null)
+    try {
+      await fetch(`/api/employees/${employeeId}/evaluators-360`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evaluatorIds: validIds }),
+      })
+    } catch (error) {
+      console.error("評価者の保存に失敗しました:", error)
+    }
+  }, [])
 
   // 評価者を変更
   const handleEvaluatorChange = (employeeId: string, index: number, evaluatorId: string | null) => {
@@ -173,6 +274,10 @@ export function EmployeeEvaluationSection({
       const current = prev[employeeId] || [null, null, null, null, null]
       const updated = [...current]
       updated[index] = evaluatorId
+
+      // DBに保存（非同期で実行）
+      saveEvaluatorsToDb(employeeId, updated)
+
       return { ...prev, [employeeId]: updated }
     })
   }
@@ -182,6 +287,26 @@ export function EmployeeEvaluationSection({
     if (!empId) return ""
     const emp = employees?.find((e) => e.id === empId)
     return emp ? `${emp.lastName} ${emp.firstName}` : ""
+  }
+
+  // 評価者が重複しているかチェック
+  const isEvaluatorDuplicated = (employeeId: string, index: number): boolean => {
+    const empEvaluators = evaluators[employeeId] || [null, null, null, null, null]
+    const currentValue = empEvaluators[index]
+    if (!currentValue) return false
+    // 同じ行の他のセルに同じ評価者がいるかチェック
+    return empEvaluators.some((ev, idx) => idx !== index && ev === currentValue)
+  }
+
+  // 各従業員が評価者として選ばれている回数をカウント
+  const getEvaluatorCount = (employeeId: string): number => {
+    let count = 0
+    Object.values(evaluators).forEach((empEvaluators) => {
+      empEvaluators.forEach((ev) => {
+        if (ev === employeeId) count++
+      })
+    })
+    return count
   }
 
   // 個別評価の評価者を変更
@@ -229,19 +354,29 @@ export function EmployeeEvaluationSection({
     })
     setEmployeeStatuses((prev) => ({ ...prev, ...newStatuses }))
 
+    // 評価タイプに応じて適切なAPIエンドポイントを呼び出す
+    const getApiUrl = (empId: string) => evaluationType === "360"
+      ? `/api/employees/${empId}/evaluation-360-status`
+      : `/api/employees/${empId}/evaluation-items`
+
     // バックグラウンドでAPI呼び出し
     Promise.all(
       filteredEmployees.map((emp) =>
-        fetch(`/api/employees/${emp.id}/evaluation-items`, {
+        fetch(getApiUrl(emp.id), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: newStatus }),
         })
       )
-    ).catch(() => {
-      // エラー時は元に戻す
-      setEmployeeStatuses(previousStatuses)
-    })
+    )
+      .then(() => {
+        // 成功したらキャッシュを無効化（親コンポーネントのタブ表示更新のため）
+        queryClient.invalidateQueries({ queryKey: ["evaluationStatuses", companyId] })
+      })
+      .catch(() => {
+        // エラー時は元に戻す
+        setEmployeeStatuses(previousStatuses)
+      })
   }
 
   return (
@@ -357,6 +492,11 @@ export function EmployeeEvaluationSection({
                           </Button>
                           <span className="font-medium">
                             {employee.lastName} {employee.firstName}
+                            {evaluationType === "360" && (
+                              <span className="text-muted-foreground font-normal ml-1">
+                                ({getEvaluatorCount(employee.id)})
+                              </span>
+                            )}
                           </span>
                         </div>
                       </TableCell>
@@ -373,32 +513,39 @@ export function EmployeeEvaluationSection({
                       )}
                       {evaluationType === "360" ? (
                         <>
-                          {[0, 1, 2, 3, 4].map((idx) => (
-                            <TableCell key={idx}>
-                              <Select
-                                value={empEvaluators[idx] || "none"}
-                                onValueChange={(value) =>
-                                  handleEvaluatorChange(employee.id, idx, value === "none" ? null : value)
-                                }
-                              >
-                                <SelectTrigger className="w-[110px] h-8 text-xs">
-                                  <SelectValue placeholder="選択">
-                                    {empEvaluators[idx] ? getEmployeeName(empEvaluators[idx]) : "-"}
-                                  </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="none">-</SelectItem>
-                                  {employees
-                                    ?.filter((e) => e.id !== employee.id)
-                                    .map((e) => (
-                                      <SelectItem key={e.id} value={e.id}>
-                                        {e.lastName} {e.firstName}
-                                      </SelectItem>
-                                    ))}
-                                </SelectContent>
-                              </Select>
-                            </TableCell>
-                          ))}
+                          {[0, 1, 2, 3, 4].map((idx) => {
+                            const isDuplicated = isEvaluatorDuplicated(employee.id, idx)
+                            return (
+                              <TableCell key={idx}>
+                                <Select
+                                  value={empEvaluators[idx] || "none"}
+                                  onValueChange={(value) =>
+                                    handleEvaluatorChange(employee.id, idx, value === "none" ? null : value)
+                                  }
+                                >
+                                  <SelectTrigger
+                                    className={`w-[110px] h-8 text-xs ${
+                                      isDuplicated ? "border-red-500 border-2 bg-red-50" : ""
+                                    }`}
+                                  >
+                                    <SelectValue placeholder="選択">
+                                      {empEvaluators[idx] ? getEmployeeName(empEvaluators[idx]) : "-"}
+                                    </SelectValue>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="none">-</SelectItem>
+                                    {employees
+                                      ?.filter((e) => e.id !== employee.id)
+                                      .map((e) => (
+                                        <SelectItem key={e.id} value={e.id}>
+                                          {e.lastName} {e.firstName}
+                                        </SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                            )
+                          })}
                         </>
                       ) : (
                         <TableCell>
@@ -454,10 +601,11 @@ export function EmployeeEvaluationSection({
       {evaluationType === "individual" ? (
         <EmployeeEvaluationItemsDialog
           open={isItemsDialogOpen}
-          onOpenChange={setIsItemsDialogOpen}
+          onOpenChange={handleDialogClose}
           employee={selectedEmployee}
           rolesData={rolesData}
           companyId={companyId}
+          onScoreChange={handleScoreChange}
         />
       ) : (
         <Employee360EvaluationItemsDialog

@@ -1,16 +1,9 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -34,8 +27,8 @@ import {
 import { GradeHistoryList } from "./GradeHistoryList";
 import { SalaryChart } from "./SalaryChart";
 import type { EmployeeDetailResponse, SalaryHistoryItem } from "@/types/employee";
-import { EmploymentTypeLabels, GenderLabels, EmployeeStatusLabels, EmployeeStatus } from "@/types/employee";
-import { Plus, Upload, Camera, X, Pencil, Check, Loader2 } from "lucide-react";
+import { GenderLabels, EmployeeStatusLabels, EmployeeStatus } from "@/types/employee";
+import { Plus, Upload, Camera, X, Loader2, User, Building2, Wallet, ClipboardCheck, History, TrendingUp, FileText, MessageSquare } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 
 interface SelectOption {
@@ -43,20 +36,27 @@ interface SelectOption {
   label: string;
 }
 
-interface MasterData {
-  departments: SelectOption[];
-  grades: SelectOption[];
-  jobTypes: SelectOption[];
-  positions: SelectOption[];
+interface JobTypeOption extends SelectOption {
+  jobCategoryId: string;
 }
 
-interface EditFormData {
+interface EmploymentTypeOption extends SelectOption {}
+
+interface MasterData {
+  jobCategories: SelectOption[];
+  grades: SelectOption[];
+  jobTypes: JobTypeOption[];
+  positions: SelectOption[];
+  employmentTypes: EmploymentTypeOption[];
+}
+
+interface FormData {
   lastName: string;
   firstName: string;
   gender: string;
   birthDate: string;
   hireDate: string;
-  departmentId: string;
+  jobCategoryId: string;
   employmentType: string;
   jobTypeId: string;
   gradeId: string;
@@ -73,7 +73,7 @@ interface PersonalSheetProps {
 
 export function PersonalSheet({ employee: initialEmployee, basePath = "/employees" }: PersonalSheetProps) {
   const router = useRouter();
-  const [employee, setEmployee] = useState(initialEmployee);
+  const [employee] = useState(initialEmployee);
   const initials = `${employee.lastName.charAt(0)}${employee.firstName.charAt(0)}`;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -96,26 +96,42 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
   );
   const [isEvaluationSaving, setIsEvaluationSaving] = useState(false);
 
-  // 編集モード
-  const [isEditing, setIsEditing] = useState(false);
+  // フォーム状態
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [masterData, setMasterData] = useState<MasterData | null>(null);
-  const [isMasterLoading, setIsMasterLoading] = useState(false);
-  const [editForm, setEditForm] = useState<EditFormData>({
-    lastName: "",
-    firstName: "",
-    gender: "",
-    birthDate: "",
-    hireDate: "",
-    departmentId: "",
-    employmentType: "",
-    jobTypeId: "",
-    gradeId: "",
-    positionId: "",
-    currentStep: "",
-    currentRank: "",
-    baseSalary: "",
+  const [isMasterLoading, setIsMasterLoading] = useState(true);
+
+  const formatDateForInput = (date: Date | string | null) => {
+    if (!date) return "";
+    const d = new Date(date);
+    return d.toISOString().split("T")[0];
+  };
+
+  // 従業員の職種からjobCategoryIdを取得
+  const getInitialJobCategoryId = () => {
+    if (employee.jobTypeId && masterData?.jobTypes) {
+      const jt = masterData.jobTypes.find(j => j.value === employee.jobTypeId);
+      return jt?.jobCategoryId || "";
+    }
+    return "";
+  };
+
+  const [form, setForm] = useState<FormData>({
+    lastName: employee.lastName,
+    firstName: employee.firstName,
+    gender: employee.gender || "",
+    birthDate: formatDateForInput(employee.birthDate),
+    hireDate: formatDateForInput(employee.hireDate),
+    jobCategoryId: "",
+    employmentType: employee.employmentType,
+    jobTypeId: employee.jobTypeId || "",
+    gradeId: employee.gradeId || "",
+    positionId: employee.positionId || "",
+    currentStep: employee.currentStep != null ? String(employee.currentStep) : "",
+    currentRank: employee.currentRank || "",
+    baseSalary: employee.baseSalary != null ? String(employee.baseSalary) : "",
   });
 
   // 新規面談記録フォーム
@@ -126,6 +142,78 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // マスターデータ読み込み
+  useEffect(() => {
+    const loadMasterData = async () => {
+      try {
+        const [jobCatsRes, gds, jtsRes, posRes, empTypesRes] = await Promise.all([
+          fetch(`/api/companies/${employee.companyId}/job-categories`).then(r => r.ok ? r.json() : { jobCategories: [] }),
+          fetch(`/api/grades?companyId=${employee.companyId}`).then(r => r.ok ? r.json() : []),
+          fetch(`/api/companies/${employee.companyId}/job-types`).then(r => r.ok ? r.json() : { jobTypes: [] }),
+          fetch(`/api/companies/${employee.companyId}/positions`).then(r => r.ok ? r.json() : { positions: [] }),
+          fetch(`/api/companies/${employee.companyId}/employment-types`).then(r => r.ok ? r.json() : { employmentTypes: [] }),
+        ]);
+
+        const jobCategories = (jobCatsRes.jobCategories || []).map((c: { id: string; name: string }) => ({
+          value: c.id,
+          label: c.name,
+        }));
+
+        const jobTypes = (jtsRes.jobTypes || []).map((j: { id: string; name: string; jobCategoryId: string }) => ({
+          value: j.id,
+          label: j.name,
+          jobCategoryId: j.jobCategoryId,
+        }));
+
+        const employmentTypes = (empTypesRes.employmentTypes || []).map((e: { value: string; label: string }) => ({
+          value: e.value,
+          label: e.label,
+        }));
+
+        setMasterData({
+          jobCategories,
+          grades: (gds || []).map((g: { id: string; name: string }) => ({ value: g.id, label: g.name })),
+          jobTypes,
+          positions: (posRes.positions || []).map((p: { id: string; name: string }) => ({ value: p.id, label: p.name })),
+          employmentTypes,
+        });
+
+        // jobCategoryIdを初期設定
+        if (employee.jobTypeId) {
+          const jt = jobTypes.find((j: JobTypeOption) => j.value === employee.jobTypeId);
+          if (jt) {
+            setForm(prev => ({ ...prev, jobCategoryId: jt.jobCategoryId }));
+          }
+        }
+      } catch {
+        setMasterData({ jobCategories: [], grades: [], jobTypes: [], positions: [], employmentTypes: [] });
+      } finally {
+        setIsMasterLoading(false);
+      }
+    };
+    loadMasterData();
+  }, [employee.companyId, employee.jobTypeId]);
+
+  // 選択された部署に基づいて職種をフィルタリング
+  const filteredJobTypes = useMemo(() => {
+    if (!masterData?.jobTypes) return [];
+    if (!form.jobCategoryId) return masterData.jobTypes;
+    return masterData.jobTypes.filter(jt => jt.jobCategoryId === form.jobCategoryId);
+  }, [form.jobCategoryId, masterData?.jobTypes]);
+
+  // 部署が変更されたときに職種をクリア
+  const handleJobCategoryChange = (value: string) => {
+    setForm(prev => {
+      const currentJobType = masterData?.jobTypes.find(jt => jt.value === prev.jobTypeId);
+      const shouldClearJobType = currentJobType && currentJobType.jobCategoryId !== value;
+      return {
+        ...prev,
+        jobCategoryId: value,
+        jobTypeId: shouldClearJobType ? "" : prev.jobTypeId,
+      };
+    });
+  };
+
   const formatDate = (date: Date | string | null) => {
     if (!date) return "-";
     const d = new Date(date);
@@ -134,24 +222,20 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
 
   const formatSalary = (salary: number | null) => {
     if (!salary) return "-";
-    return `${salary.toLocaleString()}円`;
+    return `¥${salary.toLocaleString()}`;
   };
 
-  // 従業員ステータスの取得
   const employeeStatus = (employee as unknown as { status?: EmployeeStatus }).status || "ACTIVE";
 
-  // 画像アップロード処理
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // ファイルサイズチェック（2MB）
     if (file.size > 2 * 1024 * 1024) {
       alert("画像サイズが大きすぎます。2MB以下の画像を使用してください");
       return;
     }
 
-    // ファイルタイプチェック
     const allowedTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
     if (!allowedTypes.includes(file.type)) {
       alert("PNG、JPEG、GIF、WebPのみ対応しています");
@@ -161,16 +245,13 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
     setIsUploading(true);
 
     try {
-      // Base64に変換
       const reader = new FileReader();
       reader.onload = async (e) => {
         const base64 = e.target?.result as string;
 
         const response = await fetch(`/api/employees/${employee.id}/upload-image`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ image: base64 }),
         });
 
@@ -191,7 +272,6 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
     }
   };
 
-  // 画像削除処理
   const handleImageDelete = async () => {
     if (!confirm("プロフィール画像を削除しますか？")) return;
 
@@ -214,7 +294,6 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
     }
   };
 
-  // 面談記録追加
   const handleAddInterview = async () => {
     if (!newInterview.interviewDate) {
       alert("面談日は必須です");
@@ -225,9 +304,7 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
     try {
       const response = await fetch(`/api/employees/${employee.id}/interviews`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newInterview),
       });
 
@@ -248,84 +325,28 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
     }
   };
 
-  const formatDateForInput = (date: Date | string | null) => {
-    if (!date) return "";
-    const d = new Date(date);
-    return d.toISOString().split("T")[0];
-  };
-
-  const startEditing = useCallback(async () => {
-    setEditForm({
-      lastName: employee.lastName,
-      firstName: employee.firstName,
-      gender: employee.gender || "",
-      birthDate: formatDateForInput(employee.birthDate),
-      hireDate: formatDateForInput(employee.hireDate),
-      departmentId: employee.departmentId || "",
-      employmentType: employee.employmentType,
-      jobTypeId: employee.jobTypeId || "",
-      gradeId: employee.gradeId || "",
-      positionId: employee.positionId || "",
-      currentStep: employee.currentStep != null ? String(employee.currentStep) : "",
-      currentRank: employee.currentRank || "",
-      baseSalary: employee.baseSalary != null ? String(employee.baseSalary) : "",
-    });
-    setSaveError(null);
-    setIsEditing(true);
-
-    if (!masterData) {
-      setIsMasterLoading(true);
-      try {
-        const [depts, gds, jts, pos] = await Promise.all([
-          fetch(`/api/companies/${employee.companyId}/departments`).then(r => r.ok ? r.json() : []),
-          fetch(`/api/grades?companyId=${employee.companyId}`).then(r => r.ok ? r.json() : []),
-          fetch(`/api/companies/${employee.companyId}/job-types`).then(r => r.ok ? r.json() : []),
-          fetch(`/api/companies/${employee.companyId}/positions`).then(r => r.ok ? r.json() : []),
-        ]);
-        setMasterData({
-          departments: (depts.departments || depts || []).map((d: { id: string; name: string }) => ({ value: d.id, label: d.name })),
-          grades: (gds || []).map((g: { id: string; name: string }) => ({ value: g.id, label: g.name })),
-          jobTypes: (jts.jobTypes || jts || []).map((j: { id: string; name: string; jobCategory?: { name: string } }) => ({
-            value: j.id,
-            label: j.jobCategory ? `${j.jobCategory.name} / ${j.name}` : j.name,
-          })),
-          positions: (pos.positions || pos || []).map((p: { id: string; name: string }) => ({ value: p.id, label: p.name })),
-        });
-      } catch {
-        setMasterData({ departments: [], grades: [], jobTypes: [], positions: [] });
-      } finally {
-        setIsMasterLoading(false);
-      }
-    }
-  }, [employee, masterData]);
-
-  const cancelEditing = () => {
-    setIsEditing(false);
-    setSaveError(null);
-  };
-
   const handleSave = async () => {
     setIsSaving(true);
     setSaveError(null);
+    setSaveSuccess(false);
     try {
       const response = await fetch(`/api/employees/${employee.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           companyId: employee.companyId,
-          lastName: editForm.lastName,
-          firstName: editForm.firstName,
-          gender: editForm.gender || null,
-          birthDate: editForm.birthDate || null,
-          hireDate: editForm.hireDate,
-          departmentId: editForm.departmentId || null,
-          employmentType: editForm.employmentType,
-          jobTypeId: editForm.jobTypeId || null,
-          gradeId: editForm.gradeId || null,
-          positionId: editForm.positionId || null,
-          currentStep: editForm.currentStep ? parseInt(editForm.currentStep, 10) : null,
-          currentRank: editForm.currentRank || null,
-          baseSalary: editForm.baseSalary ? parseInt(editForm.baseSalary, 10) : null,
+          lastName: form.lastName,
+          firstName: form.firstName,
+          gender: form.gender || null,
+          birthDate: form.birthDate || null,
+          hireDate: form.hireDate,
+          employmentType: form.employmentType,
+          jobTypeId: form.jobTypeId || null,
+          gradeId: form.gradeId || null,
+          positionId: form.positionId || null,
+          currentStep: form.currentStep ? parseInt(form.currentStep, 10) : null,
+          currentRank: form.currentRank || null,
+          baseSalary: form.baseSalary ? parseInt(form.baseSalary, 10) : null,
         }),
       });
 
@@ -334,7 +355,8 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
         throw new Error(errorData.error || "保存に失敗しました");
       }
 
-      setIsEditing(false);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
       router.refresh();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "保存に失敗しました");
@@ -343,16 +365,14 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
     }
   };
 
-  const updateField = (field: keyof EditFormData, value: string) => {
-    setEditForm(prev => ({ ...prev, [field]: value }));
+  const updateField = (field: keyof FormData, value: string) => {
+    setForm(prev => ({ ...prev, [field]: value }));
   };
 
-  // 評価有無の更新
   const handleEvaluationChange = async (type: "360" | "individual", checked: boolean) => {
     const previous360 = has360Evaluation;
     const previousIndividual = hasIndividualEvaluation;
 
-    // 楽観的更新
     if (type === "360") {
       setHas360Evaluation(checked);
     } else {
@@ -374,7 +394,6 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
         throw new Error("更新に失敗しました");
       }
     } catch {
-      // エラー時は元に戻す
       if (type === "360") {
         setHas360Evaluation(previous360);
       } else {
@@ -385,7 +404,6 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
     }
   };
 
-  // 給与履歴取得
   const loadSalaryHistory = async () => {
     if (salaryLoaded) return;
 
@@ -405,351 +423,355 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
     }
   };
 
-  // セクションラベル用ヘルパー
-  const FieldLabel = ({ children }: { children: React.ReactNode }) => (
-    <dt className="text-[11px] font-medium text-muted-foreground mb-1">{children}</dt>
-  );
-  const FieldValue = ({ children }: { children: React.ReactNode }) => (
-    <dd className="text-sm font-medium">{children}</dd>
+  // セクションヘッダー
+  const SectionHeader = ({ icon: Icon, title }: { icon: React.ElementType; title: string }) => (
+    <div className="flex items-center gap-2 mb-6">
+      <Icon className="h-5 w-5 text-primary" />
+      <h3 className="text-lg font-bold">{title}</h3>
+    </div>
   );
 
+  // フィールドラベル
+  const FieldLabel = ({ children, required }: { children: React.ReactNode; required?: boolean }) => (
+    <Label className="text-sm text-muted-foreground">
+      {children}
+      {required && <span className="text-destructive ml-0.5">*</span>}
+    </Label>
+  );
+
+  // 年収計算
+  const calculatedAnnualSalary = form.baseSalary ? parseInt(form.baseSalary, 10) * 12 : null;
+
   return (
-    <div className="space-y-5">
-      {/* ===== ヘッダー: 名前 + 社員番号 + ステータス + アクション ===== */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="relative group shrink-0">
-            <Avatar className="h-14 w-14">
-              {profileImage ? (
-                <AvatarImage src={profileImage} alt={employee.fullName} />
-              ) : null}
-              <AvatarFallback className="text-lg font-semibold bg-muted">{initials}</AvatarFallback>
-            </Avatar>
-            <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-              <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" onChange={handleImageUpload} disabled={isUploading} />
-              {profileImage ? (
-                <div className="flex gap-0.5">
-                  <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-white/20" onClick={() => fileInputRef.current?.click()} disabled={isUploading}><Camera className="h-3 w-3" /></Button>
-                  <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-white/20" onClick={handleImageDelete} disabled={isUploading}><X className="h-3 w-3" /></Button>
+    <div className="min-h-screen bg-slate-50/50">
+      {/* ===== ヘッダー ===== */}
+      <div className="bg-white border-b sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="relative group shrink-0">
+                <Avatar className="h-14 w-14 ring-2 ring-slate-100">
+                  {profileImage ? (
+                    <AvatarImage src={profileImage} alt={`${form.lastName} ${form.firstName}`} />
+                  ) : null}
+                  <AvatarFallback className="text-lg font-bold bg-primary/10 text-primary">{initials}</AvatarFallback>
+                </Avatar>
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                  <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" onChange={handleImageUpload} disabled={isUploading} />
+                  {profileImage ? (
+                    <div className="flex gap-0.5">
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-white/20" onClick={() => fileInputRef.current?.click()} disabled={isUploading}><Camera className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-white/20" onClick={handleImageDelete} disabled={isUploading}><X className="h-3 w-3" /></Button>
+                    </div>
+                  ) : (
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-white/20" onClick={() => fileInputRef.current?.click()} disabled={isUploading}><Upload className="h-3 w-3" /></Button>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-xl font-bold">{form.lastName} {form.firstName}</h1>
+                  <Badge variant={employeeStatus === "ACTIVE" ? "default" : employeeStatus === "LEAVE" ? "secondary" : "outline"} className="text-xs">
+                    {EmployeeStatusLabels[employeeStatus]}
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground font-mono">{employee.employeeCode}</p>
+              </div>
+            </div>
+            <Button variant="ghost" asChild>
+              <Link href={basePath}>一覧に戻る</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* ===== メインコンテンツ: 2カラムレイアウト ===== */}
+      <div className="max-w-7xl mx-auto px-6 py-6">
+        <div className="grid lg:grid-cols-5 gap-6">
+          {/* ===== 左カラム: 入力フォーム ===== */}
+          <div className="lg:col-span-3 space-y-8">
+            {/* 個人情報 */}
+            <div className="bg-white rounded-xl border p-6">
+              <SectionHeader icon={User} title="個人情報" />
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <FieldLabel required>姓</FieldLabel>
+                    <Input className="mt-1.5 w-full" value={form.lastName} onChange={e => updateField("lastName", e.target.value)} placeholder="山田" />
+                  </div>
+                  <div>
+                    <FieldLabel required>名</FieldLabel>
+                    <Input className="mt-1.5 w-full" value={form.firstName} onChange={e => updateField("firstName", e.target.value)} placeholder="太郎" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <FieldLabel>生年月日</FieldLabel>
+                    <Input className="mt-1.5 w-full" type="date" value={form.birthDate} onChange={e => updateField("birthDate", e.target.value)} />
+                  </div>
+                  <div>
+                    <FieldLabel>性別</FieldLabel>
+                    <Select value={form.gender} onValueChange={(v) => updateField("gender", v)}>
+                      <SelectTrigger className="mt-1.5 w-full"><SelectValue placeholder="選択してください" /></SelectTrigger>
+                      <SelectContent>{Object.entries(GenderLabels).map(([val, label]) => <SelectItem key={val} value={val}>{label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <FieldLabel required>入社日</FieldLabel>
+                    <Input className="mt-1.5 w-full" type="date" value={form.hireDate} onChange={e => updateField("hireDate", e.target.value)} />
+                  </div>
+                  <div>
+                    <FieldLabel required>雇用形態</FieldLabel>
+                    <Select value={form.employmentType} onValueChange={(v) => updateField("employmentType", v)}>
+                      <SelectTrigger className="mt-1.5 w-full"><SelectValue placeholder="選択してください" /></SelectTrigger>
+                      <SelectContent>
+                        {masterData?.employmentTypes.map(et => (
+                          <SelectItem key={et.value} value={et.value}>{et.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 所属情報 */}
+            <div className="bg-white rounded-xl border p-6">
+              <SectionHeader icon={Building2} title="所属情報" />
+              {isMasterLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : (
-                <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-white/20" onClick={() => fileInputRef.current?.click()} disabled={isUploading}><Upload className="h-3 w-3" /></Button>
+                <div className="space-y-5">
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <FieldLabel>部署</FieldLabel>
+                      <Select value={form.jobCategoryId} onValueChange={handleJobCategoryChange}>
+                        <SelectTrigger className="mt-1.5 w-full"><SelectValue placeholder="選択してください" /></SelectTrigger>
+                        <SelectContent>
+                          {masterData?.jobCategories.map(c => (
+                            <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <FieldLabel>職種</FieldLabel>
+                      <Select
+                        value={form.jobTypeId}
+                        onValueChange={(v) => updateField("jobTypeId", v)}
+                        disabled={filteredJobTypes.length === 0}
+                      >
+                        <SelectTrigger className="mt-1.5 w-full">
+                          <SelectValue placeholder={filteredJobTypes.length === 0 ? "部署を先に選択" : "選択してください"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {filteredJobTypes.map(j => (
+                            <SelectItem key={j.value} value={j.value}>{j.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <FieldLabel>等級</FieldLabel>
+                      <Select value={form.gradeId} onValueChange={(v) => updateField("gradeId", v)}>
+                        <SelectTrigger className="mt-1.5 w-full"><SelectValue placeholder="選択してください" /></SelectTrigger>
+                        <SelectContent>{masterData?.grades.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <FieldLabel>役職</FieldLabel>
+                      <Select value={form.positionId} onValueChange={(v) => updateField("positionId", v)}>
+                        <SelectTrigger className="mt-1.5 w-full"><SelectValue placeholder="選択してください" /></SelectTrigger>
+                        <SelectContent>{masterData?.positions.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 報酬 */}
+            <div className="bg-white rounded-xl border p-6">
+              <SectionHeader icon={Wallet} title="報酬" />
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <FieldLabel>号俸</FieldLabel>
+                    <Input className="mt-1.5 w-full" type="number" value={form.currentStep} onChange={e => updateField("currentStep", e.target.value)} placeholder="30" />
+                  </div>
+                  <div>
+                    <FieldLabel>ランク</FieldLabel>
+                    <Input className="mt-1.5 w-full" value={form.currentRank} onChange={e => updateField("currentRank", e.target.value)} placeholder="B3" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <FieldLabel>基本給（月額）</FieldLabel>
+                    <Input className="mt-1.5 w-full" type="number" value={form.baseSalary} onChange={e => updateField("baseSalary", e.target.value)} placeholder="280000" />
+                  </div>
+                  <div>
+                    <FieldLabel>年収（自動計算）</FieldLabel>
+                    <div className="mt-1.5 p-3 bg-slate-50 rounded-lg border h-10 flex items-center">
+                      <span className="text-base font-bold text-emerald-600">{formatSalary(calculatedAnnualSalary)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 評価設定 */}
+            <div className="bg-white rounded-xl border p-6">
+              <SectionHeader icon={ClipboardCheck} title="評価設定" />
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 rounded-lg border hover:border-primary/30 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="has360"
+                      checked={has360Evaluation}
+                      onCheckedChange={(checked) => handleEvaluationChange("360", !!checked)}
+                      disabled={isEvaluationSaving}
+                      className="h-5 w-5"
+                    />
+                    <label htmlFor="has360" className="text-base font-medium cursor-pointer">360度評価</label>
+                  </div>
+                  {has360Evaluation ? (
+                    <Badge className="bg-primary">対象</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-muted-foreground">対象外</Badge>
+                  )}
+                </div>
+                <div className="flex items-center justify-between p-4 rounded-lg border hover:border-primary/30 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="hasIndividual"
+                      checked={hasIndividualEvaluation}
+                      onCheckedChange={(checked) => handleEvaluationChange("individual", !!checked)}
+                      disabled={isEvaluationSaving}
+                      className="h-5 w-5"
+                    />
+                    <label htmlFor="hasIndividual" className="text-base font-medium cursor-pointer">個別評価</label>
+                  </div>
+                  {hasIndividualEvaluation ? (
+                    <Badge className="bg-primary">対象</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-muted-foreground">対象外</Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 保存ボタン */}
+            <div className="bg-white rounded-xl border p-6">
+              {saveError && (
+                <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-md text-sm mb-4">{saveError}</div>
+              )}
+              {saveSuccess && (
+                <div className="bg-emerald-50 text-emerald-600 px-4 py-3 rounded-md text-sm mb-4">保存しました</div>
+              )}
+              <Button onClick={handleSave} disabled={isSaving} className="w-full" size="lg">
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    保存中...
+                  </>
+                ) : (
+                  "設定の保存"
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {/* ===== 右カラム: 履歴・記録系 ===== */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* 等級変遷履歴 */}
+            <div className="bg-white rounded-xl border p-6">
+              <SectionHeader icon={History} title="等級変遷履歴" />
+              <GradeHistoryList history={employee.gradeHistory} />
+            </div>
+
+            {/* 給与変遷 */}
+            <div className="bg-white rounded-xl border p-6">
+              <SectionHeader icon={TrendingUp} title="給与変遷" />
+              {!salaryLoaded ? (
+                <div className="text-center py-6">
+                  <Button variant="outline" onClick={loadSalaryHistory} disabled={isSalaryLoading}>
+                    {isSalaryLoading ? "読み込み中..." : "給与履歴を表示"}
+                  </Button>
+                </div>
+              ) : salaryHistory.length === 0 ? (
+                <p className="text-center py-6 text-muted-foreground text-sm">給与履歴はまだありません</p>
+              ) : (
+                <SalaryChart history={salaryHistory} />
+              )}
+            </div>
+
+            {/* 評価履歴 */}
+            <div className="bg-white rounded-xl border p-6">
+              <SectionHeader icon={FileText} title="評価履歴" />
+              <p className="text-center py-6 text-muted-foreground text-sm">評価履歴はまだありません</p>
+            </div>
+
+            {/* 面談記録 */}
+            <div className="bg-white rounded-xl border p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5 text-primary" />
+                  <h3 className="text-lg font-bold">面談記録</h3>
+                </div>
+                <Dialog open={isInterviewModalOpen} onOpenChange={setIsInterviewModalOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="outline">
+                      <Plus className="h-4 w-4 mr-1" />
+                      追加
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader><DialogTitle>面談記録を追加</DialogTitle></DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div>
+                        <Label htmlFor="interviewDate">面談日 *</Label>
+                        <Input id="interviewDate" type="date" className="mt-1.5" value={newInterview.interviewDate} onChange={(e) => setNewInterview({ ...newInterview, interviewDate: e.target.value })} />
+                      </div>
+                      <div>
+                        <Label htmlFor="notes">内容</Label>
+                        <Textarea id="notes" rows={4} className="mt-1.5" placeholder="面談の内容を記録..." value={newInterview.notes} onChange={(e) => setNewInterview({ ...newInterview, notes: e.target.value })} />
+                      </div>
+                      <div>
+                        <Label htmlFor="documentUrl">議事録URL</Label>
+                        <Input id="documentUrl" type="url" className="mt-1.5" placeholder="https://..." value={newInterview.documentUrl} onChange={(e) => setNewInterview({ ...newInterview, documentUrl: e.target.value })} />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setIsInterviewModalOpen(false)}>キャンセル</Button>
+                      <Button onClick={handleAddInterview} disabled={isSubmitting}>{isSubmitting ? "追加中..." : "追加"}</Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+              {interviewRecords.length === 0 ? (
+                <p className="text-center py-6 text-muted-foreground text-sm">面談記録はまだありません</p>
+              ) : (
+                <ul className="space-y-4 max-h-80 overflow-y-auto">
+                  {interviewRecords.map((record) => (
+                    <li key={record.id} className="border-b last:border-0 pb-4 last:pb-0">
+                      <p className="text-xs font-medium text-muted-foreground">{formatDate(record.interviewDate)}</p>
+                      <p className="mt-1 text-sm whitespace-pre-wrap">{record.notes || "メモなし"}</p>
+                      {record.documentUrl && (
+                        <a href={record.documentUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline mt-2 inline-block">議事録を見る</a>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight">{employee.fullName}</h1>
-              <Badge variant={employeeStatus === "ACTIVE" ? "default" : employeeStatus === "LEAVE" ? "secondary" : "outline"} className="text-[10px] px-1.5 py-0">
-                {EmployeeStatusLabels[employeeStatus]}
-              </Badge>
-            </div>
-            <p className="text-xs text-muted-foreground font-mono">{employee.employeeCode}</p>
-          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {isEditing ? (
-            <>
-              <Button variant="ghost" size="sm" onClick={cancelEditing} disabled={isSaving}>キャンセル</Button>
-              <Button size="sm" onClick={handleSave} disabled={isSaving}>
-                {isSaving ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Check className="h-3.5 w-3.5 mr-1" />}
-                {isSaving ? "保存中..." : "保存"}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="outline" size="sm" onClick={startEditing}>
-                <Pencil className="h-3 w-3 mr-1.5" />
-                編集
-              </Button>
-              <Button variant="ghost" size="sm" asChild>
-                <Link href={basePath}>一覧に戻る</Link>
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {saveError && (
-        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-md text-sm">{saveError}</div>
-      )}
-
-      {/* ===== 所属情報 ===== */}
-      <Card>
-        <CardHeader className="pb-2 pt-4 px-5">
-          <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">所属情報</CardTitle>
-        </CardHeader>
-        <CardContent className="px-5 pb-5">
-          {isEditing ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              <div>
-                <Label className="text-[11px] text-muted-foreground">部署</Label>
-                <Select value={editForm.departmentId} onValueChange={(v) => updateField("departmentId", v)}>
-                  <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="-" /></SelectTrigger>
-                  <SelectContent>{masterData?.departments.map(d => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-[11px] text-muted-foreground">等級</Label>
-                <Select value={editForm.gradeId} onValueChange={(v) => updateField("gradeId", v)}>
-                  <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="-" /></SelectTrigger>
-                  <SelectContent>{masterData?.grades.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-[11px] text-muted-foreground">役職</Label>
-                <Select value={editForm.positionId} onValueChange={(v) => updateField("positionId", v)}>
-                  <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="-" /></SelectTrigger>
-                  <SelectContent>{masterData?.positions.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-[11px] text-muted-foreground">職種</Label>
-                <Select value={editForm.jobTypeId} onValueChange={(v) => updateField("jobTypeId", v)}>
-                  <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="-" /></SelectTrigger>
-                  <SelectContent>{masterData?.jobTypes.map(j => <SelectItem key={j.value} value={j.value}>{j.label}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-[11px] text-muted-foreground">雇用形態 *</Label>
-                <Select value={editForm.employmentType} onValueChange={(v) => updateField("employmentType", v)}>
-                  <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
-                  <SelectContent>{Object.entries(EmploymentTypeLabels).map(([val, label]) => <SelectItem key={val} value={val}>{label}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-            </div>
-          ) : (
-            <dl className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              <div><FieldLabel>部署</FieldLabel><FieldValue>{employee.department?.name || "-"}</FieldValue></div>
-              <div><FieldLabel>等級</FieldLabel><FieldValue>{employee.grade?.name || "-"}</FieldValue></div>
-              <div><FieldLabel>役職</FieldLabel><FieldValue>{employee.position?.name || "-"}</FieldValue></div>
-              <div><FieldLabel>職種</FieldLabel><FieldValue>{employee.jobType ? `${employee.jobType.categoryName} / ${employee.jobType.name}` : "-"}</FieldValue></div>
-              <div><FieldLabel>雇用形態</FieldLabel><FieldValue>{EmploymentTypeLabels[employee.employmentType]}</FieldValue></div>
-            </dl>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ===== 個人情報 ===== */}
-      <Card>
-        <CardHeader className="pb-2 pt-4 px-5">
-          <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">個人情報</CardTitle>
-        </CardHeader>
-        <CardContent className="px-5 pb-5">
-          {isEditing ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              <div>
-                <Label className="text-[11px] text-muted-foreground">姓 *</Label>
-                <Input className="mt-1 h-8 text-sm" value={editForm.lastName} onChange={e => updateField("lastName", e.target.value)} />
-              </div>
-              <div>
-                <Label className="text-[11px] text-muted-foreground">名 *</Label>
-                <Input className="mt-1 h-8 text-sm" value={editForm.firstName} onChange={e => updateField("firstName", e.target.value)} />
-              </div>
-              <div>
-                <Label className="text-[11px] text-muted-foreground">入社日 *</Label>
-                <Input className="mt-1 h-8 text-sm" type="date" value={editForm.hireDate} onChange={e => updateField("hireDate", e.target.value)} />
-              </div>
-              <div>
-                <Label className="text-[11px] text-muted-foreground">生年月日</Label>
-                <Input className="mt-1 h-8 text-sm" type="date" value={editForm.birthDate} onChange={e => updateField("birthDate", e.target.value)} />
-              </div>
-              <div>
-                <Label className="text-[11px] text-muted-foreground">性別</Label>
-                <Select value={editForm.gender} onValueChange={(v) => updateField("gender", v)}>
-                  <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="-" /></SelectTrigger>
-                  <SelectContent>{Object.entries(GenderLabels).map(([val, label]) => <SelectItem key={val} value={val}>{label}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-            </div>
-          ) : (
-            <dl className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              <div><FieldLabel>入社日</FieldLabel><FieldValue>{formatDate(employee.hireDate)}</FieldValue></div>
-              <div><FieldLabel>勤続年数</FieldLabel><FieldValue>{employee.yearsOfService}年</FieldValue></div>
-              <div><FieldLabel>生年月日</FieldLabel><FieldValue>{formatDate(employee.birthDate)}</FieldValue></div>
-              <div><FieldLabel>年齢</FieldLabel><FieldValue>{employee.age !== null ? `${employee.age}歳` : "-"}</FieldValue></div>
-              <div><FieldLabel>性別</FieldLabel><FieldValue>{employee.gender ? GenderLabels[employee.gender] : "-"}</FieldValue></div>
-            </dl>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ===== 給与 + 等級変遷 ===== */}
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2 pt-4 px-5">
-            <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">報酬</CardTitle>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
-            {isEditing ? (
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-[11px] text-muted-foreground">基本給（円）</Label>
-                  <Input className="mt-1 h-8 text-sm" type="number" value={editForm.baseSalary} onChange={e => updateField("baseSalary", e.target.value)} placeholder="280000" />
-                </div>
-                <div>
-                  <Label className="text-[11px] text-muted-foreground">年収（自動計算）</Label>
-                  <p className="mt-1 text-sm font-medium text-muted-foreground">{editForm.baseSalary ? formatSalary(parseInt(editForm.baseSalary, 10) * 12) : "-"}</p>
-                </div>
-                <div>
-                  <Label className="text-[11px] text-muted-foreground">号俸</Label>
-                  <Input className="mt-1 h-8 text-sm" type="number" value={editForm.currentStep} onChange={e => updateField("currentStep", e.target.value)} placeholder="30" />
-                </div>
-                <div>
-                  <Label className="text-[11px] text-muted-foreground">ランク</Label>
-                  <Input className="mt-1 h-8 text-sm" value={editForm.currentRank} onChange={e => updateField("currentRank", e.target.value)} placeholder="B3" />
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="rounded-lg border bg-muted/30 px-4 py-3">
-                    <p className="text-[11px] text-muted-foreground">基本給（月額）</p>
-                    <p className="text-xl font-bold mt-0.5">{formatSalary(employee.baseSalary)}</p>
-                  </div>
-                  <div className="rounded-lg border bg-muted/30 px-4 py-3">
-                    <p className="text-[11px] text-muted-foreground">年収（概算）</p>
-                    <p className="text-xl font-bold mt-0.5">{formatSalary(employee.annualSalary)}</p>
-                  </div>
-                </div>
-                <dl className="grid grid-cols-2 gap-4">
-                  <div><FieldLabel>号俸</FieldLabel><FieldValue>{employee.currentStep ?? "-"}</FieldValue></div>
-                  <div><FieldLabel>ランク</FieldLabel><FieldValue>{employee.currentRank || "-"}</FieldValue></div>
-                </dl>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2 pt-4 px-5">
-            <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">等級変遷履歴</CardTitle>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
-            <GradeHistoryList history={employee.gradeHistory} />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ===== 給与変遷 ===== */}
-      <Card>
-        <CardHeader className="pb-2 pt-4 px-5">
-          <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">給与変遷</CardTitle>
-        </CardHeader>
-        <CardContent className="px-5 pb-5">
-          {!salaryLoaded ? (
-            <div className="text-center py-6">
-              <Button variant="outline" size="sm" onClick={loadSalaryHistory} disabled={isSalaryLoading}>
-                {isSalaryLoading ? "読み込み中..." : "給与履歴を表示"}
-              </Button>
-            </div>
-          ) : salaryHistory.length === 0 ? (
-            <p className="text-center py-6 text-sm text-muted-foreground">給与履歴はまだありません</p>
-          ) : (
-            <SalaryChart history={salaryHistory} />
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ===== 評価設定 ===== */}
-      <Card>
-        <CardHeader className="pb-2 pt-4 px-5">
-          <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">評価設定</CardTitle>
-        </CardHeader>
-        <CardContent className="px-5 pb-5">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex items-center gap-3 p-3 rounded-lg border">
-              <Checkbox
-                id="has360"
-                checked={has360Evaluation}
-                onCheckedChange={(checked) => handleEvaluationChange("360", !!checked)}
-                disabled={isEvaluationSaving}
-              />
-              <label htmlFor="has360" className="text-sm font-medium cursor-pointer flex-1">
-                360度評価対象
-              </label>
-              {has360Evaluation && <span className="text-xs text-primary">対象</span>}
-            </div>
-            <div className="flex items-center gap-3 p-3 rounded-lg border">
-              <Checkbox
-                id="hasIndividual"
-                checked={hasIndividualEvaluation}
-                onCheckedChange={(checked) => handleEvaluationChange("individual", !!checked)}
-                disabled={isEvaluationSaving}
-              />
-              <label htmlFor="hasIndividual" className="text-sm font-medium cursor-pointer flex-1">
-                個別評価対象
-              </label>
-              {hasIndividualEvaluation && <span className="text-xs text-primary">対象</span>}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ===== 評価 + 面談 ===== */}
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2 pt-4 px-5">
-            <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">評価履歴</CardTitle>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
-            <p className="text-center py-6 text-sm text-muted-foreground">評価履歴はまだありません</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2 pt-4 px-5">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">面談記録</CardTitle>
-              <Dialog open={isInterviewModalOpen} onOpenChange={setIsInterviewModalOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm" variant="ghost" className="h-7 text-xs">
-                    <Plus className="h-3 w-3 mr-1" />
-                    追加
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader><DialogTitle>面談記録を追加</DialogTitle></DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div>
-                      <Label htmlFor="interviewDate">面談日 *</Label>
-                      <Input id="interviewDate" type="date" value={newInterview.interviewDate} onChange={(e) => setNewInterview({ ...newInterview, interviewDate: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label htmlFor="notes">内容</Label>
-                      <Textarea id="notes" rows={4} placeholder="面談の内容を記録..." value={newInterview.notes} onChange={(e) => setNewInterview({ ...newInterview, notes: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label htmlFor="documentUrl">議事録URL</Label>
-                      <Input id="documentUrl" type="url" placeholder="https://..." value={newInterview.documentUrl} onChange={(e) => setNewInterview({ ...newInterview, documentUrl: e.target.value })} />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsInterviewModalOpen(false)}>キャンセル</Button>
-                    <Button onClick={handleAddInterview} disabled={isSubmitting}>{isSubmitting ? "追加中..." : "追加"}</Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
-            {interviewRecords.length === 0 ? (
-              <p className="text-center py-6 text-sm text-muted-foreground">面談記録はまだありません</p>
-            ) : (
-              <ul className="space-y-3 max-h-80 overflow-y-auto">
-                {interviewRecords.map((record) => (
-                  <li key={record.id} className="border-b last:border-0 pb-3 last:pb-0">
-                    <p className="text-xs text-muted-foreground">{formatDate(record.interviewDate)}</p>
-                    <p className="mt-0.5 text-sm whitespace-pre-wrap">{record.notes || "メモなし"}</p>
-                    {record.documentUrl && (
-                      <a href={record.documentUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline mt-1 inline-block">議事録を見る</a>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
       </div>
     </div>
   );

@@ -16,7 +16,7 @@ interface PageProps {
   params: Promise<{ companyId: string }>;
   searchParams: Promise<{
     search?: string;
-    departmentId?: string;
+    jobCategoryId?: string;
     gradeId?: string;
     jobTypeId?: string;
     employmentType?: string;
@@ -48,9 +48,9 @@ export default async function EmployeesPage({
     searchParams,
   ]);
 
-  const [companyCheck, departments, grades, jobTypes, , positions] = await Promise.all([
+  const [companyCheck, jobCategories, grades, jobTypes, positions] = await Promise.all([
     getCompanyById(companyId),
-    prisma.department.findMany({
+    prisma.jobCategory.findMany({
       where: { companyId },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
@@ -64,9 +64,6 @@ export default async function EmployeesPage({
       where: { jobCategory: { companyId } },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
-    }),
-    prisma.jobType.count({
-      where: { jobCategory: { companyId } },
     }),
     prisma.position.findMany({
       where: { companyId },
@@ -89,7 +86,7 @@ export default async function EmployeesPage({
   const query = {
     companyId,
     keyword: searchParamsResolved.search || undefined,
-    departmentId: parseMultiParam(searchParamsResolved.departmentId),
+    jobCategoryId: parseMultiParam(searchParamsResolved.jobCategoryId),
     gradeId: parseMultiParam(searchParamsResolved.gradeId),
     jobTypeId: parseMultiParam(searchParamsResolved.jobTypeId),
     employmentType: parseMultiParam(searchParamsResolved.employmentType) as EmploymentType[] | undefined,
@@ -135,7 +132,7 @@ export default async function EmployeesPage({
         companyId={companyId}
         basePath={`/companies/${companyId}/employees`}
         filters={{
-          departments: departments.map((d) => ({ value: d.id, label: d.name })),
+          departments: jobCategories.map((c) => ({ value: c.id, label: c.name })),
           grades: grades.map((g) => ({ value: g.id, label: g.name })),
           jobTypes: jobTypes.map((j) => ({ value: j.id, label: j.name })),
           positions: positions.map((p) => ({ value: p.id, label: p.name })),

@@ -101,6 +101,7 @@ model Company {
   evaluationPeriods         EvaluationPeriod[]
   evaluationScoringMethod   EvaluationScoringMethod?
   grades                    Grade[]
+  gradeJobTypeGroups        GradeJobTypeGroup[]
   jobCategories             JobCategory[]
   positions                 Position[]
   salaryTables              SalaryTable[]
@@ -154,13 +155,14 @@ model Grade {
   isManagement               Boolean                      @default(false) @map("is_management")
   createdAt                  DateTime                     @default(now()) @map("created_at")
   updatedAt                  DateTime                     @updatedAt @map("updated_at")
-  gradeHistory       EmployeeGradeHistory[]
-  employees                  Employee[]
+  gradeHistory                EmployeeGradeHistory[]
+  employees                   Employee[]
   evaluation360TemplateGrades Evaluation360TemplateGrade[]
-  gradeAdjustmentRules       GradeAdjustmentRule[]
-  gradeJobTypeConfigs        GradeJobTypeConfig[]
-  company                    Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  salaryTableEntries         SalaryTableEntry[]
+  gradeAdjustmentRules        GradeAdjustmentRule[]
+  gradeJobTypeConfigs         GradeJobTypeConfig[]
+  gradeJobTypeGroups          GradeJobTypeGroup[]
+  company                     Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  salaryTableEntries          SalaryTableEntry[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -228,6 +230,21 @@ model GradeRole {
   @@map("grade_roles")
 }
 
+// 等級ごとの職種グループ（同じ役割責任を共有する職種のグループ）
+model GradeJobTypeGroup {
+  id         String   @id @default(cuid())
+  companyId  String   @map("company_id")
+  gradeId    String   @map("grade_id")
+  jobTypeIds Json     @map("job_type_ids") // Array of job type IDs in this group
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  grade   Grade   @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+
+  @@map("grade_job_type_groups")
+}
+
 model GradeAdjustmentRule {
   id             String           @id @default(cuid())
   gradeId        String           @map("grade_id")
@@ -271,6 +288,7 @@ model Employee {
   status                          EmployeeStatus                   @default(ACTIVE)
   has360Evaluation                Boolean                          @default(false) @map("has_360_evaluation")
   hasIndividualEvaluation         Boolean                          @default(false) @map("has_individual_evaluation")
+  evaluator360Ids                 String[]                         @default([]) @map("evaluator_360_ids")
   employee360EvaluationItems      Employee360EvaluationItem[]
   evaluationWeights               EmployeeEvaluationWeight[]
   employeeEvaluationsAsEmployee   EmployeeEvaluation[]             @relation("EmployeeEvaluationToEmployee")

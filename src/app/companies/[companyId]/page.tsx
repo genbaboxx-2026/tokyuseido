@@ -12,17 +12,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Users, TrendingUp, Calendar, ClipboardCheck, Building2, Briefcase } from "lucide-react";
+import { Users, TrendingUp, ClipboardCheck, Building2, Briefcase } from "lucide-react";
 
 // UIテキスト定数
 const UI_TEXT = {
   PAGE_TITLE: "企業概要",
-  BASIC_INFO: "基本情報",
-  EVALUATION_PERIOD: "評価期間",
-  REPRESENTATIVE: "代表者",
   GRADE_DISTRIBUTION: "等級分布",
   RECENT_ACTIVITY: "最近のアクティビティ",
-  NOT_SET: "未設定",
 };
 
 interface PageProps {
@@ -76,15 +72,6 @@ export default async function CompanyDashboardPage({ params }: PageProps) {
     notFound();
   }
 
-  const formatDate = (date: Date | null) => {
-    if (!date) return UI_TEXT.NOT_SET;
-    return new Date(date).toLocaleDateString("ja-JP", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-  };
-
   return (
     <div className="space-y-6">
       {/* ページタイトル */}
@@ -137,36 +124,6 @@ export default async function CompanyDashboardPage({ params }: PageProps) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* 基本情報 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{UI_TEXT.BASIC_INFO}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <p className="text-sm text-muted-foreground">
-                {UI_TEXT.REPRESENTATIVE}
-              </p>
-              <p className="font-medium">{company.representative || "-"}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">
-                {UI_TEXT.EVALUATION_PERIOD}
-              </p>
-              <p className="font-medium flex items-center gap-2">
-                <Calendar className="h-4 w-4" />
-                {company.evaluationPeriodStart && company.evaluationPeriodEnd ? (
-                  <span>
-                    {formatDate(company.evaluationPeriodStart)} 〜 {formatDate(company.evaluationPeriodEnd)}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">{UI_TEXT.NOT_SET}</span>
-                )}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* 等級分布 */}
         <Card>
           <CardHeader>

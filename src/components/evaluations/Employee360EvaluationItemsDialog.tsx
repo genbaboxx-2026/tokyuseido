@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   Dialog,
   DialogContent,
@@ -42,6 +43,7 @@ interface Template360Category {
 // 360度評価テンプレート型
 interface Template360 {
   id: string
+  status?: "draft" | "confirmed"
   grades: Array<{ id: string; name: string }>
   jobTypes: Array<{ id: string; name: string }>
   categories: Template360Category[]
@@ -62,6 +64,7 @@ export function Employee360EvaluationItemsDialog({
   companyId,
   onStatusChange,
 }: Employee360EvaluationItemsDialogProps) {
+  const queryClient = useQueryClient()
   const [categories, setCategories] = useState<Template360Category[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -112,6 +115,31 @@ export function Employee360EvaluationItemsDialog({
           setAllEmployees(empData.employees || [])
         }
 
+        // 評価者をDBから取得
+        try {
+          const evaluatorsRes = await fetch(`/api/employees/${employee.id}/evaluators-360`)
+          if (evaluatorsRes.ok) {
+            const evaluatorsData = await evaluatorsRes.json()
+            const evaluatorIds: string[] = evaluatorsData.evaluatorIds || []
+            // 5枠の評価者設定を初期化
+            const newSettings = [
+              { evaluatorId: null as string | null, templateId: "" },
+              { evaluatorId: null as string | null, templateId: "" },
+              { evaluatorId: null as string | null, templateId: "" },
+              { evaluatorId: null as string | null, templateId: "" },
+              { evaluatorId: null as string | null, templateId: "" },
+            ]
+            evaluatorIds.forEach((id, idx) => {
+              if (idx < 5) {
+                newSettings[idx].evaluatorId = id
+              }
+            })
+            setEvaluatorSettings(newSettings)
+          }
+        } catch {
+          // 評価者取得エラーは無視
+        }
+
         // 360度評価テンプレート一覧を取得
         const templatesRes = await fetch(`/api/companies/${companyId}/evaluation-360-templates`)
         if (templatesRes.ok) {
@@ -130,9 +158,6 @@ export function Employee360EvaluationItemsDialog({
               if (customData.categories && customData.categories.length > 0) {
                 setCategories(customData.categories)
                 setTemplateFound(true)
-                if (customData.evaluatorSettings) {
-                  setEvaluatorSettings(customData.evaluatorSettings)
-                }
                 return
               }
             }
@@ -140,16 +165,25 @@ export function Employee360EvaluationItemsDialog({
             // カスタム項目がなければテンプレートを使用
           }
 
-          // 等級・職種に合致するテンプレートを探す
+          // 等級・職種に合致するテンプレートを探す（確定済みのみ）
           if (gradeId && jobTypeId) {
-            const matchingTemplate = loadedTemplates.find((t) => {
+            // 合致するすべての確定済みテンプレートを取得
+            const matchingTemplates = loadedTemplates.filter((t) => {
+              const isConfirmed = t.status === "confirmed"
               const hasGrade = t.grades.some((g) => g.id === gradeId)
               const hasJobType = t.jobTypes.some((jt) => jt.id === jobTypeId)
-              return hasGrade && hasJobType
+              return isConfirmed && hasGrade && hasJobType && t.categories.length > 0
             })
 
-            if (matchingTemplate && matchingTemplate.categories.length > 0) {
-              setCategories(matchingTemplate.categories)
+            if (matchingTemplates.length > 0) {
+              // 最も具体的なテンプレートを選択（対象等級・職種が少ない方が優先）
+              const mostSpecificTemplate = matchingTemplates.sort((a, b) => {
+                const aSpecificity = a.grades.length + a.jobTypes.length
+                const bSpecificity = b.grades.length + b.jobTypes.length
+                return aSpecificity - bSpecificity
+              })[0]
+
+              setCategories(mostSpecificTemplate.categories)
               setTemplateFound(true)
               return
             }
@@ -307,12 +341,12 @@ export function Employee360EvaluationItemsDialog({
 
     setIsSaving(true)
     try {
+      // 評価項目を保存
       const res = await fetch(`/api/employees/${employee.id}/evaluation-360-items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           categories,
-          evaluatorSettings: evaluatorSettings.filter((s) => s.evaluatorId !== null),
         }),
       })
 
@@ -320,6 +354,21 @@ export function Employee360EvaluationItemsDialog({
         const error = await res.json()
         throw new Error(error.error || "保存に失敗しました")
       }
+
+      // 評価者を保存（nullを除いた有効なIDのみ）
+      const validEvaluatorIds = evaluatorSettings
+        .map((s) => s.evaluatorId)
+        .filter((id): id is string => id !== null)
+
+      await fetch(`/api/employees/${employee.id}/evaluators-360`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evaluatorIds: validEvaluatorIds }),
+      })
+
+      // キャッシュを無効化して再取得
+      await queryClient.invalidateQueries({ queryKey: ["evaluationMaxScores", companyId] })
+      await queryClient.invalidateQueries({ queryKey: ["employees", companyId] })
 
       onStatusChange?.(employee.id, "COMPLETED")
       onOpenChange(false)

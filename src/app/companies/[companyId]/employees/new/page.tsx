@@ -47,8 +47,8 @@ export default async function NewEmployeePage({ params }: PageProps) {
   }
 
   // マスターデータを取得
-  const [departments, grades, jobTypes, positions] = await Promise.all([
-    prisma.department.findMany({
+  const [jobCategories, grades, jobTypes, positions] = await Promise.all([
+    prisma.jobCategory.findMany({
       where: { companyId },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
@@ -60,7 +60,7 @@ export default async function NewEmployeePage({ params }: PageProps) {
     }),
     prisma.jobType.findMany({
       where: { jobCategory: { companyId } },
-      select: { id: true, name: true, jobCategory: { select: { name: true } } },
+      select: { id: true, name: true, jobCategoryId: true },
       orderBy: { name: "asc" },
     }),
     prisma.position.findMany({
@@ -93,9 +93,9 @@ export default async function NewEmployeePage({ params }: PageProps) {
       {/* フォーム */}
       <EmployeeForm
         companyId={companyId}
-        departments={departments.map((d) => ({
-          value: d.id,
-          label: d.name,
+        jobCategories={jobCategories.map((c) => ({
+          value: c.id,
+          label: c.name,
         }))}
         grades={grades.map((g) => ({
           value: g.id,
@@ -103,7 +103,8 @@ export default async function NewEmployeePage({ params }: PageProps) {
         }))}
         jobTypes={jobTypes.map((j) => ({
           value: j.id,
-          label: `${j.jobCategory.name} / ${j.name}`,
+          label: j.name,
+          jobCategoryId: j.jobCategoryId,
         }))}
         positions={positions.map((p) => ({
           value: p.id,

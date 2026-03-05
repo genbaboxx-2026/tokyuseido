@@ -156,7 +156,7 @@ export async function POST(
     const { id: companyId } = await context.params
     const body = await request.json() as CreateEvaluation360TemplateDto
 
-    const { name = "", description, gradeIds = [], jobTypeIds = [], status = "draft", categories } = body
+    const { name = "", description, gradeIds, jobTypeIds, status = "draft", categories } = body
 
     const company = await prisma.company.findUnique({
       where: { id: companyId },
@@ -169,8 +169,19 @@ export async function POST(
       )
     }
 
-    // 等級と職種の存在確認（指定がある場合のみ）
-    if (gradeIds.length > 0) {
+    // 等級IDと職種IDを決定（指定がない場合は全件取得）
+    let finalGradeIds: string[] = gradeIds || []
+    let finalJobTypeIds: string[] = jobTypeIds || []
+
+    // gradeIdsが指定されていない場合、全等級を取得
+    if (!gradeIds || gradeIds.length === 0) {
+      const allGrades = await prisma.grade.findMany({
+        where: { companyId },
+        select: { id: true },
+      })
+      finalGradeIds = allGrades.map((g) => g.id)
+    } else {
+      // 指定がある場合は存在確認
       const grades = await prisma.grade.findMany({
         where: {
           id: { in: gradeIds },
@@ -186,7 +197,15 @@ export async function POST(
       }
     }
 
-    if (jobTypeIds.length > 0) {
+    // jobTypeIdsが指定されていない場合、全職種を取得
+    if (!jobTypeIds || jobTypeIds.length === 0) {
+      const allJobTypes = await prisma.jobType.findMany({
+        where: { jobCategory: { companyId } },
+        select: { id: true },
+      })
+      finalJobTypeIds = allJobTypes.map((jt) => jt.id)
+    } else {
+      // 指定がある場合は存在確認
       const jobTypes = await prisma.jobType.findMany({
         where: {
           id: { in: jobTypeIds },
@@ -209,13 +228,13 @@ export async function POST(
         name,
         description,
         status,
-        grades: gradeIds.length > 0 ? {
-          create: gradeIds.map((gradeId) => ({
+        grades: finalGradeIds.length > 0 ? {
+          create: finalGradeIds.map((gradeId) => ({
             gradeId,
           })),
         } : undefined,
-        jobTypes: jobTypeIds.length > 0 ? {
-          create: jobTypeIds.map((jobTypeId) => ({
+        jobTypes: finalJobTypeIds.length > 0 ? {
+          create: finalJobTypeIds.map((jobTypeId) => ({
             jobTypeId,
           })),
         } : undefined,

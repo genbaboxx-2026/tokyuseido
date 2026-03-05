@@ -2,8 +2,9 @@
 
 import { useState, useRef } from "react"
 import { useParams } from "next/navigation"
+import { useQuery } from "@tanstack/react-query"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { UserCircle, Percent, Users } from "lucide-react"
+import { UserCircle, Percent, Users, CheckCircle } from "lucide-react"
 import {
   Evaluation360TemplateSection,
   EvaluationTemplateMatrixSection,
@@ -14,6 +15,19 @@ import {
 // 評価タブタイプ
 type EvaluationTabType = "individual" | "settings" | "360"
 
+// 従業員型（簡易）
+interface Employee {
+  id: string
+  has360Evaluation?: boolean
+  hasIndividualEvaluation?: boolean
+}
+
+// 評価ステータス型
+interface EvaluationStatus {
+  employeeId: string
+  status: string
+}
+
 export default function EvaluationsPage() {
   const params = useParams()
   const companyId = params.companyId as string
@@ -21,6 +35,58 @@ export default function EvaluationsPage() {
 
   // 一度表示したタブを記録（遅延ロード用）
   const loadedTabs = useRef<Set<EvaluationTabType>>(new Set(["360"]))
+
+  // 従業員データを取得
+  const { data: employees } = useQuery<Employee[]>({
+    queryKey: ["employees", companyId],
+    queryFn: async () => {
+      const res = await fetch(`/api/employees?companyId=${companyId}&limit=100`)
+      if (!res.ok) return []
+      const data = await res.json()
+      return data.employees || []
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // 個別評価のステータスを取得
+  const { data: individualStatuses } = useQuery<EvaluationStatus[]>({
+    queryKey: ["evaluationStatuses", companyId, "individual"],
+    queryFn: async () => {
+      const res = await fetch(`/api/employees/evaluation-statuses?companyId=${companyId}&type=individual`)
+      if (!res.ok) return []
+      return res.json()
+    },
+    staleTime: 30 * 1000, // 30秒キャッシュ
+  })
+
+  // 360度評価のステータスを取得
+  const { data: evaluation360Statuses } = useQuery<EvaluationStatus[]>({
+    queryKey: ["evaluationStatuses", companyId, "360"],
+    queryFn: async () => {
+      const res = await fetch(`/api/employees/evaluation-statuses?companyId=${companyId}&type=360`)
+      if (!res.ok) return []
+      return res.json()
+    },
+    staleTime: 30 * 1000,
+  })
+
+  // 個別評価が全員完了しているかチェック
+  const isIndividualAllCompleted = (() => {
+    if (!employees || !individualStatuses) return false
+    const targetEmployees = employees.filter(e => e.hasIndividualEvaluation)
+    if (targetEmployees.length === 0) return false
+    const statusMap = new Map(individualStatuses.map(s => [s.employeeId, s.status]))
+    return targetEmployees.every(e => statusMap.get(e.id) === "COMPLETED")
+  })()
+
+  // 360度評価が全員完了しているかチェック
+  const is360AllCompleted = (() => {
+    if (!employees || !evaluation360Statuses) return false
+    const targetEmployees = employees.filter(e => e.has360Evaluation)
+    if (targetEmployees.length === 0) return false
+    const statusMap = new Map(evaluation360Statuses.map(s => [s.employeeId, s.status]))
+    return targetEmployees.every(e => statusMap.get(e.id) === "COMPLETED")
+  })()
 
   const handleTabChange = (value: string) => {
     const tab = value as EvaluationTabType
@@ -44,10 +110,16 @@ export default function EvaluationsPage() {
           <TabsTrigger value="360" className="flex items-center gap-2">
             <Users className="h-4 w-4" />
             360度評価
+            {is360AllCompleted && (
+              <CheckCircle className="h-4 w-4 text-emerald-500" />
+            )}
           </TabsTrigger>
           <TabsTrigger value="individual" className="flex items-center gap-2">
             <UserCircle className="h-4 w-4" />
             個別評価
+            {isIndividualAllCompleted && (
+              <CheckCircle className="h-4 w-4 text-emerald-500" />
+            )}
           </TabsTrigger>
           <TabsTrigger value="settings" className="flex items-center gap-2">
             <Percent className="h-4 w-4" />

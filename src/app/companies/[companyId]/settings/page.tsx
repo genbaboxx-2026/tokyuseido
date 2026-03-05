@@ -4,20 +4,17 @@
  */
 
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getCompanyById } from "@/lib/data";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   CompanyCard,
-  DepartmentManager,
   PositionManager,
   JobTypeManager,
+  EmploymentTypeManager,
   SalaryTabPanel,
 } from "@/components/companies";
 import { COMPANY_LABELS } from "@/lib/company/constants";
-import { Pencil } from "lucide-react";
 
 interface PageProps {
   params: Promise<{ companyId: string }>;
@@ -41,14 +38,6 @@ export default async function CompanySettingsPage({ params }: PageProps) {
     prisma.company.findUnique({
       where: { id: companyId },
       include: {
-        departments: {
-          orderBy: { name: "asc" },
-          include: {
-            parent: {
-              select: { id: true, name: true },
-            },
-          },
-        },
         positions: {
           orderBy: { level: "desc" },
         },
@@ -82,29 +71,17 @@ export default async function CompanySettingsPage({ params }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">{COMPANY_LABELS.COMPANY_SETTINGS}</h1>
-          <p className="text-muted-foreground">
-            {company.name}の設定を管理します
-          </p>
-        </div>
-        <Link href={`/companies/${company.id}/settings/edit`}>
-          <Button variant="outline">
-            <Pencil className="h-4 w-4 mr-2" />
-            {COMPANY_LABELS.EDIT}
-          </Button>
-        </Link>
+      <div>
+        <h1 className="text-2xl font-bold">{COMPANY_LABELS.COMPANY_SETTINGS}</h1>
+        <p className="text-muted-foreground">
+          {company.name}の設定を管理します
+        </p>
       </div>
 
       <Tabs defaultValue="basic" className="space-y-6">
         <TabsList className="flex-wrap">
           <TabsTrigger value="basic">{COMPANY_LABELS.BASIC_INFO}</TabsTrigger>
-          <TabsTrigger value="departments">
-            {COMPANY_LABELS.DEPARTMENTS}
-          </TabsTrigger>
-          <TabsTrigger value="positions">{COMPANY_LABELS.POSITIONS}</TabsTrigger>
-          <TabsTrigger value="jobTypes">{COMPANY_LABELS.JOB_TYPES}</TabsTrigger>
+          <TabsTrigger value="organization">組織管理</TabsTrigger>
           <TabsTrigger value="salary">給与設定</TabsTrigger>
         </TabsList>
 
@@ -112,25 +89,18 @@ export default async function CompanySettingsPage({ params }: PageProps) {
           <CompanyCard company={company} />
         </TabsContent>
 
-        <TabsContent value="departments">
-          <DepartmentManager
-            companyId={company.id}
-            departments={company.departments}
-          />
-        </TabsContent>
-
-        <TabsContent value="positions">
-          <PositionManager
-            companyId={company.id}
-            positions={company.positions}
-          />
-        </TabsContent>
-
-        <TabsContent value="jobTypes">
-          <JobTypeManager
-            companyId={company.id}
-            jobCategories={company.jobCategories}
-          />
+        <TabsContent value="organization">
+          <div className="space-y-6">
+            <EmploymentTypeManager companyId={company.id} />
+            <PositionManager
+              companyId={company.id}
+              positions={company.positions}
+            />
+            <JobTypeManager
+              companyId={company.id}
+              jobCategories={company.jobCategories}
+            />
+          </div>
         </TabsContent>
 
         <TabsContent value="salary">

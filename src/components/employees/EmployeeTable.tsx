@@ -253,7 +253,7 @@ export function EmployeeTable({
   };
 
   const hasAnyFilter =
-    searchParams.has("departmentId") ||
+    searchParams.has("jobCategoryId") ||
     searchParams.has("gradeId") ||
     searchParams.has("jobTypeId") ||
     searchParams.has("employmentType") ||
@@ -356,7 +356,7 @@ export function EmployeeTable({
         <Table className="table-fixed">
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="w-[90px]">
+              <TableHead className="w-[84px]">
                 <SortableHeader
                   label="社員番号"
                   field="employeeCode"
@@ -365,8 +365,8 @@ export function EmployeeTable({
                   onSort={handleSort}
                 />
               </TableHead>
-              <TableHead className="text-xs font-semibold w-[100px]">氏名</TableHead>
-              <TableHead className="w-[90px]">
+              <TableHead className="text-xs font-semibold w-[96px]">氏名</TableHead>
+              <TableHead className="w-[84px]">
                 <SortableHeader
                   label="入社日"
                   field="hireDate"
@@ -375,19 +375,19 @@ export function EmployeeTable({
                   onSort={handleSort}
                 />
               </TableHead>
-              <TableHead className="w-[90px]">
+              <TableHead className="w-[80px]">
                 {filters ? (
                   <FilterHeader
                     label="部署"
                     options={filters.departments}
-                    values={getFilterValues("departmentId")}
-                    onChange={(v) => handleFilter("departmentId", v)}
+                    values={getFilterValues("jobCategoryId")}
+                    onChange={(v) => handleFilter("jobCategoryId", v)}
                   />
                 ) : (
                   <span className="text-xs font-semibold">部署</span>
                 )}
               </TableHead>
-              <TableHead className="w-[80px]">
+              <TableHead className="w-[72px]">
                 {filters ? (
                   <FilterHeader
                     label="雇用形態"
@@ -399,7 +399,7 @@ export function EmployeeTable({
                   <span className="text-xs font-semibold">雇用形態</span>
                 )}
               </TableHead>
-              <TableHead className="w-[100px]">
+              <TableHead className="w-[96px]">
                 {filters ? (
                   <FilterHeader
                     label="職種"
@@ -411,7 +411,7 @@ export function EmployeeTable({
                   <span className="text-xs font-semibold">職種</span>
                 )}
               </TableHead>
-              <TableHead className="w-[60px]">
+              <TableHead className="w-[56px]">
                 {filters ? (
                   <FilterHeader
                     label="等級"
@@ -423,7 +423,7 @@ export function EmployeeTable({
                   <span className="text-xs font-semibold">等級</span>
                 )}
               </TableHead>
-              <TableHead className="w-[60px]">
+              <TableHead className="w-[56px]">
                 {filters ? (
                   <FilterHeader
                     label="役職"
@@ -435,7 +435,7 @@ export function EmployeeTable({
                   <span className="text-xs font-semibold">役職</span>
                 )}
               </TableHead>
-              <TableHead className="text-right w-[120px]">
+              <TableHead className="text-right w-[110px]">
                 <SortableHeader
                   label="基本給"
                   field="baseSalary"
@@ -445,11 +445,11 @@ export function EmployeeTable({
                   align="right"
                 />
               </TableHead>
-              <TableHead className="text-center w-[60px]">
-                <span className="text-xs font-semibold">360</span>
+              <TableHead className="text-center w-[70px] bg-muted">
+                <span className="text-xs font-medium">360対象</span>
               </TableHead>
-              <TableHead className="text-center w-[60px]">
-                <span className="text-xs font-semibold">個別</span>
+              <TableHead className="text-center w-[70px] bg-muted">
+                <span className="text-xs font-medium">個別対象</span>
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -476,7 +476,7 @@ export function EmployeeTable({
                     </Link>
                   </TableCell>
                   <TableCell className="text-sm tabular-nums">{formatDate(employee.hireDate)}</TableCell>
-                  <TableCell className="text-sm">{employee.department?.name || "-"}</TableCell>
+                  <TableCell className="text-sm">{employee.jobType?.categoryName || "-"}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-xs font-normal">
                       {EmploymentTypeLabels[employee.employmentType]}
@@ -485,7 +485,7 @@ export function EmployeeTable({
                   <TableCell className="text-sm">{employee.jobType?.name || "-"}</TableCell>
                   <TableCell>
                     {employee.grade ? (
-                      <Badge variant={employee.grade.isManagement ? "default" : "secondary"} className="text-xs">
+                      <Badge variant="secondary" className="text-xs">
                         {employee.grade.name}
                       </Badge>
                     ) : (
@@ -496,7 +496,7 @@ export function EmployeeTable({
                   <TableCell className="text-right text-sm font-medium tabular-nums">
                     {formatSalary(employee.baseSalary)}
                   </TableCell>
-                  <TableCell className="text-center">
+                  <TableCell className="text-center bg-muted/50">
                     <Checkbox
                       checked={getEvaluationValue(employee.id, "360", employee.has360Evaluation ?? false)}
                       onCheckedChange={(checked) =>
@@ -510,7 +510,7 @@ export function EmployeeTable({
                       }
                     />
                   </TableCell>
-                  <TableCell className="text-center">
+                  <TableCell className="text-center bg-muted/50">
                     <Checkbox
                       checked={getEvaluationValue(employee.id, "individual", employee.hasIndividualEvaluation ?? false)}
                       onCheckedChange={(checked) =>

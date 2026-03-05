@@ -61,6 +61,7 @@ export default function Evaluation360TemplateSection({
   const queryClient = useQueryClient()
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
 
   // テンプレート一覧取得
   const { data, isLoading, refetch } = useQuery<Evaluation360TemplateResponse>({
@@ -113,10 +114,12 @@ export default function Evaluation360TemplateSection({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["evaluation360Templates", companyId] })
+      setDuplicatingId(null)
     },
     onError: (error) => {
       console.error("テンプレート複製エラー:", error)
       alert(error instanceof Error ? error.message : "複製に失敗しました")
+      setDuplicatingId(null)
     },
   })
 
@@ -136,6 +139,8 @@ export default function Evaluation360TemplateSection({
       }
 
       const template = await res.json()
+      // キャッシュを無効化してから遷移
+      await queryClient.invalidateQueries({ queryKey: ["evaluation360Templates", companyId] })
       router.push(`/companies/${companyId}/evaluations/360-templates/${template.id}/edit`)
     } catch (error) {
       console.error("テンプレート作成エラー:", error)
@@ -150,6 +155,9 @@ export default function Evaluation360TemplateSection({
   }
 
   const handleDuplicate = (templateId: string) => {
+    // 二重クリック防止
+    if (duplicatingId) return
+    setDuplicatingId(templateId)
     duplicateMutation.mutate(templateId)
   }
 
@@ -163,7 +171,11 @@ export default function Evaluation360TemplateSection({
     }
   }
 
-  const templates = data?.templates || []
+  // 空のテンプレート（保存されていないもの）は非表示
+  // カテゴリがあるか、名前が設定されている場合のみ表示
+  const templates = (data?.templates || []).filter(
+    (t) => t.categoriesCount > 0 || (t.name && t.name.trim() !== "")
+  )
 
   return (
     <>
@@ -220,9 +232,6 @@ export default function Evaluation360TemplateSection({
                           <Badge variant={template.status === "confirmed" ? "default" : "secondary"}>
                             {template.status === "confirmed" ? "✅ 確定" : "📝 下書き"}
                           </Badge>
-                          <Badge variant={template.isActive ? "outline" : "secondary"}>
-                            {template.isActive ? "有効" : "無効"}
-                          </Badge>
                         </div>
                         {/* 対象等級・職種（2行目） */}
                         <div className="space-y-1">
@@ -253,7 +262,7 @@ export default function Evaluation360TemplateSection({
                             variant="ghost"
                             size="sm"
                             onClick={() => handleDuplicate(template.id)}
-                            disabled={duplicateMutation.isPending}
+                            disabled={duplicatingId !== null}
                             title="複製"
                           >
                             <Copy className="h-4 w-4" />

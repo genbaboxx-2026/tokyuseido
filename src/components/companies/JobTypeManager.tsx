@@ -179,7 +179,7 @@ export function JobTypeManager({ companyId, jobCategories }: JobTypeManagerProps
                 </div>
                 {category.jobTypes.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    職種小分類がありません
+                    職種がありません
                   </p>
                 ) : (
                   <div className="flex flex-wrap gap-2">
@@ -223,7 +223,7 @@ export function JobTypeManager({ companyId, jobCategories }: JobTypeManagerProps
                         <span className="text-red-500 ml-1">*</span>
                       </FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="現場" />
+                        <Input {...field} placeholder="現場部門" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -270,7 +270,7 @@ export function JobTypeManager({ companyId, jobCategories }: JobTypeManagerProps
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="職種大分類を選択" />
+                            <SelectValue placeholder="部署を選択" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
