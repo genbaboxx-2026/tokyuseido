@@ -53,6 +53,7 @@ interface MasterData {
 interface FormData {
   lastName: string;
   firstName: string;
+  email: string;
   gender: string;
   birthDate: string;
   hireDate: string;
@@ -96,12 +97,40 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
   );
   const [isEvaluationSaving, setIsEvaluationSaving] = useState(false);
 
+  // 評価履歴
+  interface EvaluationHistoryItem {
+    id: string;
+    type: "360" | "individual";
+    periodId: string;
+    periodName: string;
+    periodType: string;
+    startDate: string;
+    endDate: string;
+    status: string;
+    averageScore: number | null;
+    finalRating: string | null;
+    evaluatorName: string | null;
+  }
+  const [evaluationHistory, setEvaluationHistory] = useState<EvaluationHistoryItem[]>([]);
+  const [isEvaluationHistoryLoading, setIsEvaluationHistoryLoading] = useState(false);
+  const [evaluationHistoryLoaded, setEvaluationHistoryLoaded] = useState(false);
+
   // フォーム状態
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [masterData, setMasterData] = useState<MasterData | null>(null);
   const [isMasterLoading, setIsMasterLoading] = useState(true);
+
+  // 号俸テーブル連動
+  interface SalaryEntry {
+    id: string;
+    stepNumber: number;
+    rank: string;
+    baseSalary: number;
+  }
+  const [salaryEntries, setSalaryEntries] = useState<SalaryEntry[]>([]);
+  const [isSalaryEntriesLoading, setIsSalaryEntriesLoading] = useState(false);
 
   const formatDateForInput = (date: Date | string | null) => {
     if (!date) return "";
@@ -121,6 +150,7 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
   const [form, setForm] = useState<FormData>({
     lastName: employee.lastName,
     firstName: employee.firstName,
+    email: (employee as unknown as { email?: string }).email || "",
     gender: employee.gender || "",
     birthDate: formatDateForInput(employee.birthDate),
     hireDate: formatDateForInput(employee.hireDate),
@@ -193,6 +223,66 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
     };
     loadMasterData();
   }, [employee.companyId, employee.jobTypeId]);
+
+  // 等級変更時に号俸エントリを取得
+  const loadSalaryEntries = async (gradeId: string) => {
+    if (!gradeId) {
+      setSalaryEntries([]);
+      return;
+    }
+    setIsSalaryEntriesLoading(true);
+    try {
+      const response = await fetch(`/api/companies/${employee.companyId}/salary-entries?gradeId=${gradeId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setSalaryEntries(data.entries || []);
+      } else {
+        setSalaryEntries([]);
+      }
+    } catch {
+      setSalaryEntries([]);
+    } finally {
+      setIsSalaryEntriesLoading(false);
+    }
+  };
+
+  // 初期ロード時に等級があれば号俸エントリを取得
+  useEffect(() => {
+    if (form.gradeId) {
+      loadSalaryEntries(form.gradeId);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 等級変更ハンドラ
+  const handleGradeChange = (gradeId: string) => {
+    setForm(prev => ({
+      ...prev,
+      gradeId,
+      // 等級が変わったら号俸・ランク・基本給をクリア
+      currentStep: "",
+      currentRank: "",
+      baseSalary: "",
+    }));
+    loadSalaryEntries(gradeId);
+  };
+
+  // 号俸選択ハンドラ（号俸テーブルから基本給を自動設定）
+  const handleStepChange = (stepNumber: string) => {
+    const entry = salaryEntries.find(e => String(e.stepNumber) === stepNumber);
+    if (entry) {
+      setForm(prev => ({
+        ...prev,
+        currentStep: stepNumber,
+        currentRank: entry.rank,
+        baseSalary: String(entry.baseSalary),
+      }));
+    } else {
+      setForm(prev => ({
+        ...prev,
+        currentStep: stepNumber,
+      }));
+    }
+  };
 
   // 選択された部署に基づいて職種をフィルタリング
   const filteredJobTypes = useMemo(() => {
@@ -337,6 +427,7 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
           companyId: employee.companyId,
           lastName: form.lastName,
           firstName: form.firstName,
+          email: form.email || null,
           gender: form.gender || null,
           birthDate: form.birthDate || null,
           hireDate: form.hireDate,
@@ -423,6 +514,42 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
     }
   };
 
+  const loadEvaluationHistory = async () => {
+    if (evaluationHistoryLoaded) return;
+
+    setIsEvaluationHistoryLoading(true);
+    try {
+      const response = await fetch(`/api/employees/${employee.id}/evaluation-history`);
+      if (!response.ok) {
+        throw new Error("評価履歴の取得に失敗しました");
+      }
+      const data = await response.json();
+      setEvaluationHistory(data.history || []);
+      setEvaluationHistoryLoaded(true);
+    } catch (error) {
+      console.error("評価履歴取得エラー:", error);
+    } finally {
+      setIsEvaluationHistoryLoading(false);
+    }
+  };
+
+  // 初期ロード時に評価履歴を取得
+  useEffect(() => {
+    loadEvaluationHistory();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 評価ステータスのラベル
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      STARTED: "進行中",
+      IN_PROGRESS: "進行中",
+      SUBMITTED: "提出済",
+      CONFIRMED: "確定",
+      COMPLETED: "完了",
+    };
+    return labels[status] || status;
+  };
+
   // セクションヘッダー
   const SectionHeader = ({ icon: Icon, title }: { icon: React.ElementType; title: string }) => (
     <div className="flex items-center gap-2 mb-6">
@@ -504,6 +631,10 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
                     <Input className="mt-1.5 w-full" value={form.firstName} onChange={e => updateField("firstName", e.target.value)} placeholder="太郎" />
                   </div>
                 </div>
+                <div>
+                  <FieldLabel>メールアドレス</FieldLabel>
+                  <Input className="mt-1.5 w-full" type="email" value={form.email} onChange={e => updateField("email", e.target.value)} placeholder="example@company.com" />
+                </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <FieldLabel>生年月日</FieldLabel>
@@ -579,7 +710,7 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
                   <div className="grid grid-cols-2 gap-6">
                     <div>
                       <FieldLabel>等級</FieldLabel>
-                      <Select value={form.gradeId} onValueChange={(v) => updateField("gradeId", v)}>
+                      <Select value={form.gradeId} onValueChange={handleGradeChange}>
                         <SelectTrigger className="mt-1.5 w-full"><SelectValue placeholder="選択してください" /></SelectTrigger>
                         <SelectContent>{masterData?.grades.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent>
                       </Select>
@@ -603,17 +734,47 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <FieldLabel>号俸</FieldLabel>
-                    <Input className="mt-1.5 w-full" type="number" value={form.currentStep} onChange={e => updateField("currentStep", e.target.value)} placeholder="30" />
+                    {salaryEntries.length > 0 ? (
+                      <Select
+                        value={form.currentStep}
+                        onValueChange={handleStepChange}
+                        disabled={isSalaryEntriesLoading}
+                      >
+                        <SelectTrigger className="mt-1.5 w-full">
+                          <SelectValue placeholder={isSalaryEntriesLoading ? "読み込み中..." : "号俸を選択"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {salaryEntries.map(entry => (
+                            <SelectItem key={entry.stepNumber} value={String(entry.stepNumber)}>
+                              {entry.stepNumber}（{entry.rank}）- ¥{entry.baseSalary.toLocaleString()}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        className="mt-1.5 w-full"
+                        type="number"
+                        value={form.currentStep}
+                        onChange={e => updateField("currentStep", e.target.value)}
+                        placeholder={form.gradeId ? "号俸テーブルなし" : "等級を先に選択"}
+                        disabled={!form.gradeId}
+                      />
+                    )}
                   </div>
                   <div>
                     <FieldLabel>ランク</FieldLabel>
-                    <Input className="mt-1.5 w-full" value={form.currentRank} onChange={e => updateField("currentRank", e.target.value)} placeholder="B3" />
+                    <div className="mt-1.5 p-3 bg-slate-50 rounded-lg border h-10 flex items-center">
+                      <span className="text-sm">{form.currentRank || "-"}</span>
+                    </div>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <FieldLabel>基本給（月額）</FieldLabel>
-                    <Input className="mt-1.5 w-full" type="number" value={form.baseSalary} onChange={e => updateField("baseSalary", e.target.value)} placeholder="280000" />
+                    <div className="mt-1.5 p-3 bg-slate-50 rounded-lg border h-10 flex items-center">
+                      <span className="text-base font-medium">{form.baseSalary ? `¥${parseInt(form.baseSalary).toLocaleString()}` : "-"}</span>
+                    </div>
                   </div>
                   <div>
                     <FieldLabel>年収（自動計算）</FieldLabel>
@@ -667,7 +828,7 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
             </div>
 
             {/* 保存ボタン */}
-            <div className="bg-white rounded-xl border p-6">
+            <div className="pt-2">
               {saveError && (
                 <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-md text-sm mb-4">{saveError}</div>
               )}
@@ -714,7 +875,34 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
             {/* 評価履歴 */}
             <div className="bg-white rounded-xl border p-6">
               <SectionHeader icon={FileText} title="評価履歴" />
-              <p className="text-center py-6 text-muted-foreground text-sm">評価履歴はまだありません</p>
+              {isEvaluationHistoryLoading ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : evaluationHistory.length === 0 ? (
+                <p className="text-center py-6 text-muted-foreground text-sm">評価履歴はまだありません</p>
+              ) : (
+                <ul className="space-y-3 max-h-80 overflow-y-auto">
+                  {evaluationHistory.map((item) => (
+                    <li key={item.id} className="p-3 rounded-lg border hover:border-primary/30 transition-colors">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-medium">{item.periodName}</span>
+                        <Badge variant={item.type === "360" ? "default" : "secondary"} className="text-xs">
+                          {item.type === "360" ? "360度" : "個別"}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>{getStatusLabel(item.status)}</span>
+                        {item.averageScore !== null && (
+                          <span className="font-medium text-foreground">
+                            スコア: {item.averageScore.toFixed(1)}
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             {/* 面談記録 */}

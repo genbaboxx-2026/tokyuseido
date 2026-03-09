@@ -96,6 +96,8 @@ export async function GET(
       description: template.description,
       isActive: template.isActive,
       status: template.status,
+      periodId: template.periodId,
+      sourceTemplateId: template.sourceTemplateId,
       createdAt: template.createdAt,
       updatedAt: template.updatedAt,
       grades: template.grades.map((g) => ({

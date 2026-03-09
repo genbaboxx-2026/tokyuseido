@@ -29,7 +29,14 @@ export async function GET(
             id: true,
             firstName: true,
             lastName: true,
+            email: true,
             department: { select: { id: true, name: true } },
+            grade: { select: { id: true, name: true } },
+          },
+        },
+        accessToken: {
+          select: {
+            id: true,
           },
         },
       },
@@ -43,12 +50,16 @@ export async function GET(
           id: string
           firstName: string
           lastName: string
+          email: string | null
           department: { id: string; name: string } | null
+          grade: { id: string; name: string } | null
         }
         totalAssigned: number
         submitted: number
         inProgress: number
         notStarted: number
+        emailSentAt: Date | null
+        hasAccessToken: boolean
       }
     >()
 
@@ -65,6 +76,14 @@ export async function GET(
         } else {
           existing.notStarted++
         }
+        // メール送信日時は最新のものを使用
+        if (assignment.emailSentAt && (!existing.emailSentAt || assignment.emailSentAt > existing.emailSentAt)) {
+          existing.emailSentAt = assignment.emailSentAt
+        }
+        // トークンがあればフラグを立てる
+        if (assignment.accessToken) {
+          existing.hasAccessToken = true
+        }
       } else {
         reviewerMap.set(reviewerId, {
           reviewer: assignment.reviewer,
@@ -72,26 +91,37 @@ export async function GET(
           submitted: assignment.status === "submitted" ? 1 : 0,
           inProgress: assignment.status === "in_progress" ? 1 : 0,
           notStarted: assignment.status === "not_started" ? 1 : 0,
+          emailSentAt: assignment.emailSentAt,
+          hasAccessToken: !!assignment.accessToken,
         })
       }
     }
 
-    // 負荷レベルを計算
-    const result = Array.from(reviewerMap.values()).map((item) => ({
-      ...item,
+    // 負荷レベルを計算し、フロントエンド用の形式に変換
+    const reviewers = Array.from(reviewerMap.values()).map((item) => ({
+      employeeId: item.reviewer.id,
+      employeeName: `${item.reviewer.lastName} ${item.reviewer.firstName}`,
+      email: item.reviewer.email,
+      department: item.reviewer.department?.name || null,
+      grade: item.reviewer.grade?.name || null,
+      assignedCount: item.totalAssigned,
+      submittedCount: item.submitted,
+      pendingCount: item.totalAssigned - item.submitted,
       // 負荷レベル: green (10以下), yellow (11-15), red (16以上)
       loadLevel:
         item.totalAssigned <= 10
           ? "green"
           : item.totalAssigned <= 15
           ? "yellow"
-          : "red",
+          : ("red" as "green" | "yellow" | "red"),
+      emailSentAt: item.emailSentAt?.toISOString() || null,
+      hasAccessToken: item.hasAccessToken,
     }))
 
     // 担当人数の多い順にソート
-    result.sort((a, b) => b.totalAssigned - a.totalAssigned)
+    reviewers.sort((a, b) => b.assignedCount - a.assignedCount)
 
-    return NextResponse.json(result)
+    return NextResponse.json({ reviewers })
   } catch (error) {
     console.error("評価者負荷一覧取得エラー:", error)
     return NextResponse.json(

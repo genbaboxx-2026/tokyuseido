@@ -67,6 +67,7 @@ export async function GET(
             department: { select: { id: true, name: true } },
             grade: { select: { id: true, name: true } },
             jobType: { select: { id: true, name: true } },
+            evaluator360Ids: true,
           },
         },
         reviewerAssignments: {
@@ -85,11 +86,13 @@ export async function GET(
         },
       },
       orderBy: {
-        createdAt: "desc",
+        employee: {
+          lastName: "asc",
+        },
       },
     })
 
-    // 各レコードのカスタム項目数を取得
+    // 各レコードのカスタム項目数と満点を取得
     const employeeIds = records.map((r) => r.employeeId)
     const itemCounts = await prisma.evaluationCustomItem.groupBy({
       by: ["employeeId"],
@@ -101,11 +104,138 @@ export async function GET(
         employeeId: { in: employeeIds },
       },
       _count: { id: true },
+      _sum: { maxScore: true },
     })
 
     const itemCountMap = new Map(
       itemCounts.map((c) => [c.employeeId, c._count.id])
     )
+    const maxScoreMap = new Map(
+      itemCounts.map((c) => [c.employeeId, c._sum.maxScore || 0])
+    )
+
+    // カスタム項目がない従業員のために、テンプレートから満点を取得
+    const employeesWithoutItems = records.filter(
+      (r) => !itemCountMap.has(r.employeeId) || itemCountMap.get(r.employeeId) === 0
+    )
+
+    // 期間固有テンプレートまたはマスターテンプレートを取得（満点計算用）
+    // まず期間固有テンプレートを確認
+    let templates = await prisma.evaluation360Template.findMany({
+      where: {
+        companyId,
+        periodId,
+        isActive: true,
+      },
+      include: {
+        grades: { select: { gradeId: true } },
+        jobTypes: { select: { jobTypeId: true } },
+        categories: {
+          include: {
+            items: { select: { maxScore: true } },
+          },
+        },
+      },
+    })
+
+    // 期間固有テンプレートがなければマスターテンプレートを使用
+    if (templates.length === 0) {
+      templates = await prisma.evaluation360Template.findMany({
+        where: {
+          companyId,
+          periodId: null,
+          isActive: true,
+          status: "confirmed",
+        },
+        include: {
+          grades: { select: { gradeId: true } },
+          jobTypes: { select: { jobTypeId: true } },
+          categories: {
+            include: {
+              items: { select: { maxScore: true } },
+            },
+          },
+        },
+      })
+    }
+
+    // テンプレートの満点を計算
+    const templateScoreMap = new Map<string, number>()
+    const gradeOnlyMap = new Map<string, number>()
+    const jobTypeOnlyMap = new Map<string, number>()
+    let defaultTemplateScore = 0
+
+    for (const template of templates) {
+      const totalScore = template.categories.reduce(
+        (sum, cat) => sum + cat.items.reduce((s, item) => s + item.maxScore, 0),
+        0
+      )
+
+      // 最初のテンプレートをデフォルトとして使用
+      if (defaultTemplateScore === 0 && totalScore > 0) {
+        defaultTemplateScore = totalScore
+      }
+
+      // 等級×職種の組み合わせでマップ
+      for (const grade of template.grades) {
+        // 等級のみのマップ
+        if (!gradeOnlyMap.has(grade.gradeId)) {
+          gradeOnlyMap.set(grade.gradeId, totalScore)
+        }
+        for (const jobType of template.jobTypes) {
+          const key = `${grade.gradeId}:${jobType.jobTypeId}`
+          templateScoreMap.set(key, totalScore)
+        }
+      }
+      // 職種のみのマップ
+      for (const jobType of template.jobTypes) {
+        if (!jobTypeOnlyMap.has(jobType.jobTypeId)) {
+          jobTypeOnlyMap.set(jobType.jobTypeId, totalScore)
+        }
+      }
+    }
+
+    // カスタム項目がない従業員にテンプレートの満点を設定
+    for (const record of employeesWithoutItems) {
+      const gradeId = record.employee.grade?.id
+      const jobTypeId = record.employee.jobType?.id
+
+      let templateScore = 0
+
+      // 1. 等級×職種の完全マッチ
+      if (gradeId && jobTypeId) {
+        const key = `${gradeId}:${jobTypeId}`
+        templateScore = templateScoreMap.get(key) || 0
+      }
+
+      // 2. 等級のみのマッチ
+      if (templateScore === 0 && gradeId) {
+        templateScore = gradeOnlyMap.get(gradeId) || 0
+      }
+
+      // 3. 職種のみのマッチ
+      if (templateScore === 0 && jobTypeId) {
+        templateScore = jobTypeOnlyMap.get(jobTypeId) || 0
+      }
+
+      // 4. デフォルトのテンプレート満点
+      if (templateScore === 0) {
+        templateScore = defaultTemplateScore
+      }
+
+      if (templateScore > 0) {
+        maxScoreMap.set(record.employeeId, templateScore)
+      }
+    }
+
+    // 全レコードにデフォルトスコアを適用（まだスコアがない場合）
+    if (defaultTemplateScore > 0) {
+      for (const record of records) {
+        if (!maxScoreMap.has(record.employeeId) || maxScoreMap.get(record.employeeId) === 0) {
+          maxScoreMap.set(record.employeeId, defaultTemplateScore)
+        }
+      }
+    }
 
     // レコードを整形
     const formattedRecords = records.map((record) => {
@@ -114,19 +244,31 @@ export async function GET(
         (ra) => ra.status === "submitted"
       ).length
 
+      // 評価者IDの配列（順序維持）
+      // reviewerAssignmentsがない場合は従業員のデフォルト評価者を使用
+      const reviewerIds = record.reviewerAssignments.length > 0
+        ? record.reviewerAssignments.map((ra) => ra.reviewer.id)
+        : record.employee.evaluator360Ids || []
+
+      // 従業員情報からevaluator360Idsを除外してレスポンス
+      const { evaluator360Ids: _omit, ...employeeData } = record.employee
+
       return {
         id: record.id,
         employeeId: record.employeeId,
-        employee: record.employee,
+        employee: employeeData,
         status: record.status,
         currentPhase: getPhaseFromStatus360(record.status),
         evaluationMethod: record.evaluationMethod,
         isAnonymous: record.isAnonymous,
         completedAt: record.completedAt,
         reviewerCount: totalReviewers,
+        reviewerIds,
+        defaultReviewerIds: record.employee.evaluator360Ids || [],
         submittedCount,
         progress: totalReviewers > 0 ? Math.round((submittedCount / totalReviewers) * 100) : 0,
-        itemCount: itemCountMap.get(record.employeeId) || 0,
+        categoryCount: itemCountMap.get(record.employeeId) || 0,
+        maxScore: maxScoreMap.get(record.employeeId) || 0,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
       }

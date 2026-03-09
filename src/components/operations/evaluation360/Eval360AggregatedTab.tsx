@@ -1,11 +1,8 @@
 "use client"
 
-import React, { useMemo } from "react"
+import React, { useState, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import {
-  Loader2,
-  CheckCircle2,
-} from "lucide-react"
+import { Loader2, CheckCircle2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -27,6 +24,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
+import { Eval360SummaryModal } from "./Eval360SummaryModal"
 
 interface Eval360AggregatedTabProps {
   companyId: string
@@ -34,36 +33,25 @@ interface Eval360AggregatedTabProps {
   onStatusChange: () => void
 }
 
-type Phase360 = "preparing" | "distributing" | "aggregated" | "completed"
-
-interface Record360 {
+interface AggregationRecord {
   id: string
   employeeId: string
-  status: string
-  currentPhase: Phase360
-  reviewerCount: number
-  submittedCount: number
-  progress: number
   employee: {
     id: string
     firstName: string
     lastName: string
-    grade: { name: string } | null
-    jobType: { name: string } | null
-    department: { name: string } | null
+    grade: { id: string; name: string } | null
+    jobType: { id: string; name: string } | null
+    department: { id: string; name: string } | null
   }
-}
-
-// ステータスの日本語表示
-const status360Labels: Record<string, string> = {
-  draft: "下書き",
-  preparing_items: "項目準備中",
-  preparing_reviewers: "評価者選定中",
-  ready: "配布準備完了",
-  distributing: "配布中",
-  collecting: "回収中",
-  aggregated: "集計済み",
-  completed: "完了",
+  status: "aggregated" | "completed"
+  isAnonymous: boolean
+  collectionRate: string
+  reviewerScores: Array<{ label: string; totalScore: number }>
+  averageScore: number
+  maxScore: number
+  percentage: number
+  completedAt: string | null
 }
 
 export function Eval360AggregatedTab({
@@ -72,14 +60,20 @@ export function Eval360AggregatedTab({
   onStatusChange,
 }: Eval360AggregatedTabProps) {
   const queryClient = useQueryClient()
-  const currentTabPhase: Phase360 = "aggregated"
+  const [selectedEmployee, setSelectedEmployee] = useState<{
+    employeeId: string
+    name: string
+    grade?: string
+    jobType?: string
+    status: "aggregated" | "completed"
+  } | null>(null)
 
-  // 全レコードを取得（全タブでキャッシュ共有）
-  const { data, isLoading } = useQuery<{ records: Record360[] }>({
-    queryKey: ["360Records", companyId, periodId, "all"],
+  // 集計テーブル用データを取得
+  const { data, isLoading } = useQuery<{ records: AggregationRecord[] }>({
+    queryKey: ["360AggregationSummary", companyId, periodId],
     queryFn: async () => {
       const res = await fetch(
-        `/api/companies/${companyId}/operations/${periodId}/360?includeAll=true`
+        `/api/companies/${companyId}/operations/${periodId}/360/aggregation-summary`
       )
       if (!res.ok) throw new Error("データの取得に失敗しました")
       return res.json()
@@ -87,17 +81,16 @@ export function Eval360AggregatedTab({
     staleTime: 30000,
   })
 
-  // ローカルでソート（アクティブなものを先頭に）
-  const records = useMemo(() => {
-    const recs = data?.records ?? []
-    return [...recs].sort((a, b) => {
-      const aActive = a.currentPhase === currentTabPhase
-      const bActive = b.currentPhase === currentTabPhase
-      if (aActive && !bActive) return -1
-      if (!aActive && bActive) return 1
-      return 0
-    })
-  }, [data?.records, currentTabPhase])
+  // 全レコードから最大の評価者数を取得（テーブルヘッダー用）
+  const maxReviewerCount = useMemo(() => {
+    if (!data?.records) return 0
+    return Math.max(...data.records.map((r) => r.reviewerScores.length), 0)
+  }, [data?.records])
+
+  // 集計済みのレコード数
+  const aggregatedRecords = useMemo(() => {
+    return data?.records?.filter((r) => r.status === "aggregated") || []
+  }, [data?.records])
 
   // 一括確定mutation
   const bulkCompleteMutation = useMutation({
@@ -111,12 +104,35 @@ export function Eval360AggregatedTab({
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({
+        queryKey: ["360AggregationSummary", companyId, periodId],
+      })
+      queryClient.invalidateQueries({
         queryKey: ["360Records", companyId, periodId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["360PhaseCounts", companyId, periodId],
       })
       onStatusChange()
       alert(data.message)
     },
   })
+
+  const handleEmployeeClick = (record: AggregationRecord) => {
+    setSelectedEmployee({
+      employeeId: record.employeeId,
+      name: `${record.employee.lastName} ${record.employee.firstName}`,
+      grade: record.employee.grade?.name,
+      jobType: record.employee.jobType?.name,
+      status: record.status,
+    })
+  }
+
+  const handleModalComplete = () => {
+    queryClient.invalidateQueries({
+      queryKey: ["360AggregationSummary", companyId, periodId],
+    })
+    onStatusChange()
+  }
 
   if (isLoading) {
     return (
@@ -126,7 +142,7 @@ export function Eval360AggregatedTab({
     )
   }
 
-  const activeCount = records.filter(r => r.currentPhase === currentTabPhase).length
+  const records = data?.records ?? []
 
   if (records.length === 0) {
     return (
@@ -142,7 +158,7 @@ export function Eval360AggregatedTab({
           </Button>
         </div>
         <div className="text-center py-8 text-muted-foreground">
-          評価対象者がいません
+          集計対象の評価者がいません
         </div>
       </div>
     )
@@ -157,7 +173,7 @@ export function Eval360AggregatedTab({
             <Button
               size="sm"
               className="bg-emerald-600 hover:bg-emerald-700"
-              disabled={bulkCompleteMutation.isPending || activeCount === 0}
+              disabled={bulkCompleteMutation.isPending || aggregatedRecords.length === 0}
             >
               {bulkCompleteMutation.isPending ? (
                 <Loader2 className="h-4 w-4 mr-1 animate-spin" />
@@ -171,72 +187,119 @@ export function Eval360AggregatedTab({
             <AlertDialogHeader>
               <AlertDialogTitle>一括確定を実行しますか？</AlertDialogTitle>
               <AlertDialogDescription>
-                {activeCount}件の評価を確定します。確定後は編集できません。
+                {aggregatedRecords.length}件の評価を確定します。確定後は編集できません。
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>キャンセル</AlertDialogCancel>
-              <AlertDialogAction onClick={() => bulkCompleteMutation.mutate()}>
+              <AlertDialogAction
+                onClick={() => bulkCompleteMutation.mutate()}
+                className="bg-emerald-600 hover:bg-emerald-700"
+              >
                 一括確定
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        <span className="text-sm text-muted-foreground self-center">
+          集計済み: {aggregatedRecords.length}件
+        </span>
       </div>
 
-      {/* レコード一覧 */}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[140px]">被評価者</TableHead>
-            <TableHead className="w-[80px]">等級</TableHead>
-            <TableHead className="w-[100px]">職種</TableHead>
-            <TableHead className="w-[80px] text-center">回収率</TableHead>
-            <TableHead className="w-[100px] text-right">合計平均</TableHead>
-            <TableHead className="w-[100px]">状態</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {records.map((record) => {
-            const isCompleted = record.currentPhase === "completed"
-            const isAggregated = record.currentPhase === "aggregated"
+      {/* レコード一覧（横スクロール対応） */}
+      <ScrollArea className="w-full whitespace-nowrap rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[140px] sticky left-0 bg-white z-10">
+                被評価者
+              </TableHead>
+              <TableHead className="w-[80px]">等級</TableHead>
+              <TableHead className="w-[100px]">職種</TableHead>
+              <TableHead className="w-[80px] text-center">回収率</TableHead>
+              {Array.from({ length: maxReviewerCount }, (_, i) => (
+                <TableHead key={i} className="w-[80px] text-center">
+                  評価者{String.fromCharCode(65 + i)}
+                </TableHead>
+              ))}
+              <TableHead className="w-[100px] text-center bg-blue-50">
+                合計平均
+              </TableHead>
+              <TableHead className="w-[100px]">状態</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {records.map((record) => {
+              const isCompleted = record.status === "completed"
+              const isAggregated = record.status === "aggregated"
 
-            return (
-              <TableRow
-                key={record.id}
-                className={isCompleted ? "opacity-50" : ""}
-              >
-                <TableCell className="font-medium">
-                  {record.employee.lastName} {record.employee.firstName}
-                </TableCell>
-                <TableCell className="text-sm">
-                  {record.employee.grade?.name || "-"}
-                </TableCell>
-                <TableCell className="text-sm">
-                  {record.employee.jobType?.name || "-"}
-                </TableCell>
-                <TableCell className="text-center">
-                  {isAggregated ? `${record.progress}%` : "-"}
-                </TableCell>
-                <TableCell className="text-right font-medium">
-                  {isAggregated ? "-" /* 実際のAPIから取得 */ : "-"}
-                </TableCell>
-                <TableCell>
-                  {isAggregated ? (
-                    <Badge className="bg-purple-100 text-purple-800">
-                      集計済み
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="text-gray-500">
-                      {status360Labels[record.status] || record.status}
-                    </Badge>
-                  )}
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
+              return (
+                <TableRow
+                  key={record.id}
+                  className={isCompleted ? "opacity-50" : ""}
+                >
+                  <TableCell className="font-medium sticky left-0 bg-white z-10">
+                    <button
+                      onClick={() => handleEmployeeClick(record)}
+                      className="text-blue-600 hover:text-blue-800 hover:underline text-left"
+                    >
+                      {record.employee.lastName} {record.employee.firstName}
+                    </button>
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {record.employee.grade?.name || "-"}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {record.employee.jobType?.name || "-"}
+                  </TableCell>
+                  <TableCell className="text-center text-sm">
+                    {record.collectionRate}
+                  </TableCell>
+                  {Array.from({ length: maxReviewerCount }, (_, i) => {
+                    const score = record.reviewerScores[i]
+                    return (
+                      <TableCell key={i} className="text-center">
+                        {score ? score.totalScore : "-"}
+                      </TableCell>
+                    )
+                  })}
+                  <TableCell className="text-center font-medium bg-blue-50">
+                    {record.averageScore}
+                  </TableCell>
+                  <TableCell>
+                    {isAggregated ? (
+                      <Badge className="bg-purple-100 text-purple-800">
+                        集計済み
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-green-100 text-green-800">
+                        完了
+                      </Badge>
+                    )}
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+        <ScrollBar orientation="horizontal" />
+      </ScrollArea>
+
+      {/* 詳細モーダル */}
+      {selectedEmployee && (
+        <Eval360SummaryModal
+          open={!!selectedEmployee}
+          onOpenChange={(open) => !open && setSelectedEmployee(null)}
+          companyId={companyId}
+          periodId={periodId}
+          employeeId={selectedEmployee.employeeId}
+          employeeName={selectedEmployee.name}
+          employeeGrade={selectedEmployee.grade}
+          employeeJobType={selectedEmployee.jobType}
+          status={selectedEmployee.status}
+          onComplete={handleModalComplete}
+        />
+      )}
     </div>
   )
 }

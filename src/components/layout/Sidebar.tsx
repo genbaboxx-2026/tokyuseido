@@ -94,7 +94,6 @@ const getCompanyNavConfig = (companyId: string) => ({
       href: `/companies/${companyId}/operations`,
       label: UI_TEXT.MENU.OPERATIONS,
       icon: Play,
-      exact: true,
     },
     {
       href: `/companies/${companyId}/reports`,
@@ -170,13 +169,13 @@ function NavItemLink({ item, pathname }: { item: NavItem; pathname: string }) {
     <Link
       href={item.href}
       className={cn(
-        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors relative",
         isActive
-          ? "bg-primary text-primary-foreground shadow-sm"
+          ? "bg-primary text-primary-foreground shadow-md before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-6 before:w-1 before:bg-white before:rounded-r-full"
           : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
       )}
     >
-      <Icon className="h-4 w-4" />
+      <Icon className={cn("h-4 w-4", isActive && "ml-1")} />
       {item.label}
     </Link>
   );
@@ -287,13 +286,13 @@ export function Sidebar({ companyName }: SidebarProps) {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors relative",
                   isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
+                    ? "bg-primary text-primary-foreground shadow-md before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-6 before:w-1 before:bg-white before:rounded-r-full"
                     : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className={cn("h-4 w-4", isActive && "ml-1")} />
                 {item.label}
               </Link>
             );

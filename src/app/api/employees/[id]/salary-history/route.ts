@@ -65,9 +65,10 @@ export async function GET(
       id: item.id,
       effectiveDate: item.effectiveDate,
       baseSalary: item.baseSalary,
-      stepNumber: item.salaryTableEntry.stepNumber,
-      rank: item.salaryTableEntry.rank,
-      gradeName: item.salaryTableEntry.grade.name,
+      stepNumber: item.salaryTableEntry?.stepNumber ?? null,
+      rank: item.salaryTableEntry?.rank ?? null,
+      gradeName: item.salaryTableEntry?.grade?.name ?? null,
+      reason: item.reason ?? null,
     }));
 
     return NextResponse.json({

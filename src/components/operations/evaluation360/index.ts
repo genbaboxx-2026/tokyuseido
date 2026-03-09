@@ -4,6 +4,7 @@ export { Eval360DistributingTab } from "./Eval360DistributingTab"
 export { Eval360AggregatedTab } from "./Eval360AggregatedTab"
 export { Eval360CompletedTab } from "./Eval360CompletedTab"
 export { Eval360InputModal } from "./Eval360InputModal"
+export { Eval360SummaryModal } from "./Eval360SummaryModal"
 
 // 分割されたコンポーネント
 export * from "./Evaluation360Types"

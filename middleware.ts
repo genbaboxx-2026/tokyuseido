@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server"
 import { getToken } from "next-auth/jwt"
 
 const protectedRoutes = ["/dashboard", "/companies"]
-const publicRoutes = ["/login", "/api/auth"]
+const publicRoutes = ["/login", "/api/auth", "/public", "/api/public"]
 
 export async function middleware(request: NextRequest) {
   const { nextUrl } = request

@@ -147,11 +147,14 @@ export async function PUT(
     }
 
     if (
+      record.status !== "draft" &&
       record.status !== "preparing_items" &&
-      record.status !== "preparing_reviewers"
+      record.status !== "preparing_reviewers" &&
+      record.status !== "ready" &&
+      record.status !== "distributing"
     ) {
       return NextResponse.json(
-        { error: "評価者の設定は準備フェーズでのみ可能です" },
+        { error: "評価者の設定は準備・配布フェーズでのみ可能です" },
         { status: 400 }
       )
     }
@@ -189,7 +192,7 @@ export async function PUT(
         evaluationMethod?: string
       } = {}
 
-      if (record.status === "preparing_items") {
+      if (record.status === "draft" || record.status === "preparing_items") {
         updateData.status = "preparing_reviewers"
       }
       if (isAnonymous !== undefined) {

@@ -69,6 +69,7 @@ export interface CreateEmployeeDto {
   employeeCode: string;
   firstName: string;
   lastName: string;
+  email?: string;
   gender?: Gender;
   birthDate?: Date | string;
   hireDate: Date | string;
@@ -90,6 +91,7 @@ export interface CreateEmployeeDto {
 export interface UpdateEmployeeDto {
   firstName?: string;
   lastName?: string;
+  email?: string | null;
   gender?: Gender;
   birthDate?: Date | string | null;
   hireDate?: Date | string;

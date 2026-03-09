@@ -101,6 +101,7 @@ export async function PUT(
     const data: UpdateEmployeeDto = {
       firstName: body.firstName,
       lastName: body.lastName,
+      email: body.email,
       gender: body.gender,
       birthDate: body.birthDate,
       hireDate: body.hireDate,

@@ -190,7 +190,7 @@ export default function EvaluationPeriodDetailPage() {
       <IndividualEvaluationSection companyId={companyId} periodId={periodId} />
 
       {/* 360度評価セクション（フェーズタブUI） */}
-      <Evaluation360Section companyId={companyId} periodId={periodId} />
+      <Evaluation360Section companyId={companyId} periodId={periodId} periodName={data.name} />
 
       {/* 評価モーダル */}
       {selectedEvaluation && (
@@ -205,16 +205,6 @@ export default function EvaluationPeriodDetailPage() {
         />
       )}
 
-      {/* 評価がない場合 */}
-      {data.evaluations.length === 0 && (
-        <Card>
-          <CardContent className="py-8">
-            <div className="text-center text-muted-foreground">
-              評価対象者がいません
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }

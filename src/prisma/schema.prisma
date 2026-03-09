@@ -271,6 +271,7 @@ model Employee {
   employeeCode                    String                           @map("employee_code")
   firstName                       String                           @map("first_name")
   lastName                        String                           @map("last_name")
+  email                           String?
   gender                          Gender?
   birthDate                       DateTime?                        @map("birth_date")
   hireDate                        DateTime                         @map("hire_date")
@@ -406,15 +407,16 @@ model SalaryAdjustmentRule {
 }
 
 model EmployeeSalary {
-  id                 String           @id @default(cuid())
-  employeeId         String           @map("employee_id")
-  salaryTableEntryId String           @map("salary_table_entry_id")
-  effectiveDate      DateTime         @map("effective_date")
-  baseSalary         Int              @map("base_salary")
-  createdAt          DateTime         @default(now()) @map("created_at")
-  updatedAt          DateTime         @updatedAt @map("updated_at")
-  employee           Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  salaryTableEntry   SalaryTableEntry @relation(fields: [salaryTableEntryId], references: [id], onDelete: Cascade)
+  id                 String            @id @default(cuid())
+  employeeId         String            @map("employee_id")
+  salaryTableEntryId String?           @map("salary_table_entry_id")
+  effectiveDate      DateTime          @map("effective_date")
+  baseSalary         Int               @map("base_salary")
+  reason             String?           // 変更理由（手動入力、号俸テーブル連動など）
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  employee           Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  salaryTableEntry   SalaryTableEntry? @relation(fields: [salaryTableEntryId], references: [id], onDelete: Cascade)
 
   @@index([employeeId])
   @@index([salaryTableEntryId])
@@ -438,6 +440,7 @@ model EvaluationPeriod {
   employeeEvaluationWeights EmployeeEvaluationWeight[]
   evaluation360Records      Evaluation360Record[]
   evaluation360s            Evaluation360[]
+  evaluation360Templates    Evaluation360Template[]
   evaluationCustomItems     EvaluationCustomItem[]
   company                   Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   individualEvaluations     IndividualEvaluation[]
@@ -655,20 +658,28 @@ model EvaluationScore {
 // ========================================
 
 model Evaluation360Template {
-  id         String                         @id @default(cuid())
-  companyId  String                         @map("company_id")
-  name       String                         @default("")
-  description String?
-  isActive   Boolean                        @default(true) @map("is_active")
-  createdAt  DateTime                       @default(now()) @map("created_at")
-  updatedAt  DateTime                       @updatedAt @map("updated_at")
-  status     String                         @default("draft")
-  categories Evaluation360TemplateCategory[]
-  grades     Evaluation360TemplateGrade[]
-  jobTypes   Evaluation360TemplateJobType[]
-  company    Company                        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id               String                         @id @default(cuid())
+  companyId        String                         @map("company_id")
+  name             String                         @default("")
+  description      String?
+  isActive         Boolean                        @default(true) @map("is_active")
+  createdAt        DateTime                       @default(now()) @map("created_at")
+  updatedAt        DateTime                       @updatedAt @map("updated_at")
+  status           String                         @default("draft")
+  // 期間固有テンプレート用フィールド
+  periodId         String?                        @map("period_id")
+  sourceTemplateId String?                        @map("source_template_id")
+  categories       Evaluation360TemplateCategory[]
+  grades           Evaluation360TemplateGrade[]
+  jobTypes         Evaluation360TemplateJobType[]
+  company          Company                        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  period           EvaluationPeriod?              @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  sourceTemplate   Evaluation360Template?         @relation("TemplateClone", fields: [sourceTemplateId], references: [id], onDelete: SetNull)
+  clonedTemplates  Evaluation360Template[]        @relation("TemplateClone")
 
+  @@unique([periodId, sourceTemplateId])
   @@index([companyId])
+  @@index([periodId])
   @@map("evaluation_360_templates")
 }
 
@@ -776,6 +787,8 @@ model Evaluation360Record {
   status             String                            @default("draft")
   evaluationMethod   String                            @default("web") @map("evaluation_method")
   isAnonymous        Boolean                           @default(true) @map("is_anonymous")
+  responseDeadline   DateTime?                         @map("response_deadline")
+  distributedAt      DateTime?                         @map("distributed_at")
   completedAt        DateTime?                         @map("completed_at")
   completedBy        String?                           @map("completed_by")
   createdAt          DateTime                          @default(now()) @map("created_at")
@@ -793,17 +806,19 @@ model Evaluation360Record {
 }
 
 model Evaluation360ReviewerAssignment {
-  id          String               @id @default(cuid())
-  recordId    String               @map("record_id")
-  reviewerId  String               @map("reviewer_id")
-  status      String               @default("not_started")
-  submittedAt DateTime?            @map("submitted_at")
+  id          String                    @id @default(cuid())
+  recordId    String                    @map("record_id")
+  reviewerId  String                    @map("reviewer_id")
+  status      String                    @default("not_started")
+  submittedAt DateTime?                 @map("submitted_at")
+  emailSentAt DateTime?                 @map("email_sent_at")
   comment     String?
-  createdAt   DateTime             @default(now()) @map("created_at")
-  updatedAt   DateTime             @updatedAt @map("updated_at")
-  record      Evaluation360Record  @relation(fields: [recordId], references: [id], onDelete: Cascade)
-  reviewer    Employee             @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
+  record      Evaluation360Record       @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  reviewer    Employee                  @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
   scores      Evaluation360Score[]
+  accessToken Evaluation360AccessToken?
 
   @@unique([recordId, reviewerId])
   @@index([recordId])
@@ -826,6 +841,19 @@ model Evaluation360Score {
   @@index([evaluationCustomItemId])
   @@index([reviewerAssignmentId])
   @@map("evaluation_360_scores")
+}
+
+model Evaluation360AccessToken {
+  id                   String                          @id @default(cuid())
+  token                String                          @unique
+  reviewerAssignmentId String                          @unique @map("reviewer_assignment_id")
+  expiresAt            DateTime                        @map("expires_at")
+  usedAt               DateTime?                       @map("used_at")
+  createdAt            DateTime                        @default(now()) @map("created_at")
+  reviewerAssignment   Evaluation360ReviewerAssignment @relation(fields: [reviewerAssignmentId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@map("evaluation_360_access_tokens")
 }
 
 // ========================================

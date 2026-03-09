@@ -15,11 +15,11 @@ type Evaluation360Status =
   | "completed"
 
 const allowedTransitions: Record<Evaluation360Status, Evaluation360Status[]> = {
-  draft: ["preparing_items"],
-  preparing_items: ["preparing_reviewers"],
-  preparing_reviewers: ["ready"],
-  ready: ["preparing_items", "distributing"],
-  distributing: ["collecting"],
+  draft: ["preparing_items", "preparing_reviewers", "ready"],
+  preparing_items: ["preparing_reviewers", "ready"],
+  preparing_reviewers: ["ready", "preparing_items"],
+  ready: ["preparing_items", "preparing_reviewers", "distributing"],
+  distributing: ["ready", "preparing_items", "collecting"],
   collecting: ["distributing", "aggregated"],
   aggregated: ["collecting", "completed"],
   completed: [],
@@ -83,6 +83,7 @@ export async function PATCH(
     }
 
     const currentStatus = record.status as Evaluation360Status
+    console.log(`[Status API] employeeId=${employeeId}, currentStatus=${currentStatus}, newStatus=${newStatus}, reviewerCount=${record.reviewerAssignments.length}`)
 
     // completedは変更不可
     if (currentStatus === "completed") {
@@ -125,15 +126,15 @@ export async function PATCH(
       }
     }
 
-    if (newStatus === "ready") {
-      // 評価者が1人以上設定されていること
-      if (record.reviewerAssignments.length === 0) {
-        return NextResponse.json(
-          { error: "評価者が1人以上必要です" },
-          { status: 400 }
-        )
-      }
-    }
+    // 評価者チェックは不要（評価者未設定でもreadyにできる）
+    // if (newStatus === "ready") {
+    //   if (record.reviewerAssignments.length === 0) {
+    //     return NextResponse.json(
+    //       { error: "評価者が1人以上必要です" },
+    //       { status: 400 }
+    //     )
+    //   }
+    // }
 
     // 更新データを準備
     const updateData: {

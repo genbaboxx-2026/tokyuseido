@@ -32,6 +32,7 @@ import { Eval360CompletedTab } from "./Eval360CompletedTab"
 interface Evaluation360SectionProps {
   companyId: string
   periodId: string
+  periodName?: string
 }
 
 interface PhaseCounts {
@@ -52,6 +53,7 @@ interface Employee {
 export function Evaluation360Section({
   companyId,
   periodId,
+  periodName,
 }: Evaluation360SectionProps) {
   const [activeTab, setActiveTab] = useState("preparing")
   const [addDialogOpen, setAddDialogOpen] = useState(false)
@@ -71,11 +73,11 @@ export function Evaluation360Section({
     },
   })
 
-  // 従業員一覧を取得
+  // 360度評価対象の従業員一覧を取得（has360Evaluation=true のみ）
   const { data: employees } = useQuery<Employee[]>({
-    queryKey: ["employees", companyId],
+    queryKey: ["employees360Target", companyId],
     queryFn: async () => {
-      const res = await fetch(`/api/companies/${companyId}/employees`)
+      const res = await fetch(`/api/companies/${companyId}/employees?has360Evaluation=true`)
       if (!res.ok) throw new Error("従業員の取得に失敗しました")
       return res.json()
     },
@@ -153,6 +155,11 @@ export function Evaluation360Section({
     })
   }
 
+  const handleDistributionStart = () => {
+    refreshPhaseCounts()
+    setActiveTab("distributing")
+  }
+
   if (isLoadingCounts) {
     return (
       <Card>
@@ -171,89 +178,81 @@ export function Evaluation360Section({
     )
   }
 
-  // Add Employee Dialog Component (reusable)
-  const AddEmployeeDialog = ({ buttonVariant = "default" }: { buttonVariant?: "default" | "outline" }) => (
-    <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-      <DialogTrigger asChild>
-        <Button variant={buttonVariant} size={buttonVariant === "outline" ? "sm" : "default"}>
-          <UserPlus className="h-4 w-4 mr-1" />
-          対象者{buttonVariant === "outline" ? "追加" : "を追加"}
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-lg max-h-[80vh]">
-        <DialogHeader>
-          <DialogTitle>360度評価対象者を選択</DialogTitle>
-          <DialogDescription>
-            360度評価の対象となる従業員を選択してください。
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <Input
-            placeholder="名前で検索..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <div className="flex items-center justify-between">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={selectAllEmployees}
-            >
-              {filteredEmployees.length === selectedEmployeeIds.length
-                ? "全解除"
-                : "全選択"}
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              {selectedEmployeeIds.length}名 選択中
-            </span>
-          </div>
-          <div className="max-h-[300px] overflow-y-auto space-y-2">
-            {filteredEmployees.map((emp) => (
-              <div
-                key={emp.id}
-                className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
-                  selectedEmployeeIds.includes(emp.id)
-                    ? "bg-blue-50 border-blue-300"
-                    : "hover:bg-gray-50"
-                }`}
-                onClick={() => toggleEmployee(emp.id)}
-              >
-                <div>
-                  <p className="font-medium">
-                    {emp.lastName} {emp.firstName}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {emp.department?.name || "-"} / {emp.grade?.name || "-"}
-                  </p>
-                </div>
-                {selectedEmployeeIds.includes(emp.id) && (
-                  <Check className="h-5 w-5 text-blue-600" />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
-            キャンセル
-          </Button>
+  // ダイアログの内容をレンダリング
+  const renderAddEmployeeDialogContent = () => (
+    <DialogContent className="max-w-lg max-h-[80vh]">
+      <DialogHeader>
+        <DialogTitle>360度評価対象者を選択</DialogTitle>
+        <DialogDescription>
+          360度評価の対象となる従業員を選択してください。
+        </DialogDescription>
+      </DialogHeader>
+      <div className="space-y-4">
+        <Input
+          placeholder="名前で検索..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+        <div className="flex items-center justify-between">
           <Button
-            onClick={handleAddEmployees}
-            disabled={
-              selectedEmployeeIds.length === 0 ||
-              createRecordsMutation.isPending
-            }
+            variant="outline"
+            size="sm"
+            onClick={selectAllEmployees}
           >
-            {createRecordsMutation.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <UserPlus className="h-4 w-4 mr-2" />
-            )}
-            {selectedEmployeeIds.length}名を追加
+            {filteredEmployees.length === selectedEmployeeIds.length
+              ? "全解除"
+              : "全選択"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <span className="text-sm text-muted-foreground">
+            {selectedEmployeeIds.length}名 選択中
+          </span>
+        </div>
+        <div className="max-h-[300px] overflow-y-auto space-y-2">
+          {filteredEmployees.map((emp) => (
+            <div
+              key={emp.id}
+              className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
+                selectedEmployeeIds.includes(emp.id)
+                  ? "bg-blue-50 border-blue-300"
+                  : "hover:bg-gray-50"
+              }`}
+              onClick={() => toggleEmployee(emp.id)}
+            >
+              <div>
+                <p className="font-medium">
+                  {emp.lastName} {emp.firstName}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {emp.department?.name || "-"} / {emp.grade?.name || "-"}
+                </p>
+              </div>
+              {selectedEmployeeIds.includes(emp.id) && (
+                <Check className="h-5 w-5 text-blue-600" />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
+          キャンセル
+        </Button>
+        <Button
+          onClick={handleAddEmployees}
+          disabled={
+            selectedEmployeeIds.length === 0 ||
+            createRecordsMutation.isPending
+          }
+        >
+          {createRecordsMutation.isPending ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <UserPlus className="h-4 w-4 mr-2" />
+          )}
+          {selectedEmployeeIds.length}名を追加
+        </Button>
+      </DialogFooter>
+    </DialogContent>
   )
 
   if (totalCount === 0) {
@@ -270,7 +269,15 @@ export function Evaluation360Section({
           <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
             <AlertCircle className="h-8 w-8 mb-2" />
             <p className="mb-4">評価対象者がいません</p>
-            <AddEmployeeDialog />
+            <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <UserPlus className="h-4 w-4 mr-1" />
+                  対象者を追加
+                </Button>
+              </DialogTrigger>
+              {renderAddEmployeeDialogContent()}
+            </Dialog>
           </div>
         </CardContent>
       </Card>
@@ -295,7 +302,15 @@ export function Evaluation360Section({
               確定: {completedCount}/{totalCount}
             </Badge>
           </div>
-          <AddEmployeeDialog buttonVariant="outline" />
+          <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <UserPlus className="h-4 w-4 mr-1" />
+                対象者追加
+              </Button>
+            </DialogTrigger>
+            {renderAddEmployeeDialogContent()}
+          </Dialog>
         </div>
         <CardDescription>複数評価者による多面評価</CardDescription>
       </CardHeader>
@@ -317,6 +332,7 @@ export function Evaluation360Section({
               companyId={companyId}
               periodId={periodId}
               onStatusChange={refreshPhaseCounts}
+              onDistributionStart={handleDistributionStart}
             />
           </TabsContent>
 
@@ -340,6 +356,8 @@ export function Evaluation360Section({
             <Eval360CompletedTab
               companyId={companyId}
               periodId={periodId}
+              periodName={periodName}
+              onPhaseChange={handleTabChange}
             />
           </TabsContent>
         </Tabs>

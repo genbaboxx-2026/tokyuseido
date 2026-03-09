@@ -109,6 +109,9 @@ export async function getEmployees(
     prisma.employee.count({ where }),
   ]);
 
+  // NOTE: emailフィールドはEmployeeモデルに含まれているため、
+  // includeせずとも自動的に返される
+
   // レスポンス形式に変換
   const employeesWithRelations: EmployeeWithRelations[] = employees.map(
     (emp) => ({
@@ -241,6 +244,7 @@ export async function createEmployee(
       employeeCode: data.employeeCode,
       firstName: data.firstName,
       lastName: data.lastName,
+      email: data.email || null,
       gender: data.gender,
       birthDate: data.birthDate ? new Date(data.birthDate) : null,
       hireDate: new Date(data.hireDate),
@@ -306,10 +310,10 @@ export async function updateEmployee(
   id: string,
   data: UpdateEmployeeDto
 ): Promise<EmployeeWithRelations> {
-  // 等級変更があるか確認
+  // 現在の従業員情報を取得（等級・給与の変更確認用）
   const currentEmployee = await prisma.employee.findUnique({
     where: { id },
-    select: { gradeId: true },
+    select: { gradeId: true, baseSalary: true },
   });
 
   const employee = await prisma.employee.update({
@@ -317,6 +321,7 @@ export async function updateEmployee(
     data: {
       firstName: data.firstName,
       lastName: data.lastName,
+      email: data.email,
       gender: data.gender,
       birthDate: data.birthDate ? new Date(data.birthDate as string) : undefined,
       hireDate: data.hireDate ? new Date(data.hireDate as string) : undefined,
@@ -357,6 +362,18 @@ export async function updateEmployee(
         gradeId: data.gradeId,
         effectiveDate: new Date(),
         reason: "等級変更",
+      },
+    });
+  }
+
+  // 給与変更があれば履歴を追加
+  if (data.baseSalary !== undefined && currentEmployee?.baseSalary !== data.baseSalary) {
+    await prisma.employeeSalary.create({
+      data: {
+        employeeId: id,
+        baseSalary: data.baseSalary ?? 0,
+        effectiveDate: new Date(),
+        reason: "手動更新",
       },
     });
   }

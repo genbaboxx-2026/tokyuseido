@@ -226,3 +226,114 @@ export async function GET(
     )
   }
 }
+
+// POST: 個別評価レコードを一括作成（対象従業員の選択）
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string; periodId: string }> }
+) {
+  try {
+    const session = await auth()
+    if (!session?.user) {
+      return NextResponse.json({ error: "認証が必要です" }, { status: 401 })
+    }
+
+    const { id: companyId, periodId } = await params
+    const body = await request.json()
+    const { employeeIds } = body as { employeeIds: string[] }
+
+    if (!employeeIds || !Array.isArray(employeeIds) || employeeIds.length === 0) {
+      return NextResponse.json(
+        { error: "従業員IDが必要です" },
+        { status: 400 }
+      )
+    }
+
+    // 既存のレコードを確認
+    const existingRecords = await prisma.employeeEvaluation.findMany({
+      where: {
+        evaluationPeriodId: periodId,
+        evaluationType: "individual",
+        employeeId: { in: employeeIds },
+      },
+      select: { employeeId: true },
+    })
+
+    const existingEmployeeIds = new Set(existingRecords.map((r) => r.employeeId))
+    const newEmployeeIds = employeeIds.filter((id) => !existingEmployeeIds.has(id))
+
+    if (newEmployeeIds.length === 0) {
+      return NextResponse.json({
+        created: 0,
+        skipped: employeeIds.length,
+        message: "すべての従業員は既にレコードが存在します",
+      })
+    }
+
+    // 従業員情報を取得（gradeId, jobTypeIdを含む）
+    const employees = await prisma.employee.findMany({
+      where: { id: { in: newEmployeeIds } },
+      select: {
+        id: true,
+        gradeId: true,
+        jobTypeId: true,
+      },
+    })
+
+    // 従業員ごとにテンプレートを取得
+    const employeeTemplateMap = new Map<string, string>()
+    for (const emp of employees) {
+      if (emp.gradeId && emp.jobTypeId) {
+        // GradeJobTypeConfigからテンプレートを取得
+        const config = await prisma.gradeJobTypeConfig.findFirst({
+          where: {
+            gradeId: emp.gradeId,
+            jobTypeId: emp.jobTypeId,
+          },
+          include: {
+            evaluationTemplate: { select: { id: true } },
+          },
+        })
+        if (config?.evaluationTemplate?.id) {
+          employeeTemplateMap.set(emp.id, config.evaluationTemplate.id)
+        }
+      }
+    }
+
+    // テンプレートがある従業員のみレコードを作成
+    const employeesWithTemplate = newEmployeeIds.filter((id) =>
+      employeeTemplateMap.has(id)
+    )
+
+    if (employeesWithTemplate.length === 0) {
+      return NextResponse.json({
+        created: 0,
+        skipped: employeeIds.length,
+        message: "対象従業員の評価テンプレートが見つかりません。等級・職種の設定を確認してください。",
+      })
+    }
+
+    // 新しいレコードを作成
+    const createdRecords = await prisma.employeeEvaluation.createMany({
+      data: employeesWithTemplate.map((employeeId) => ({
+        evaluationPeriodId: periodId,
+        employeeId,
+        evaluationType: "individual",
+        status: "STARTED" as const,
+        evaluationTemplateId: employeeTemplateMap.get(employeeId)!,
+      })),
+    })
+
+    return NextResponse.json({
+      created: createdRecords.count,
+      skipped: employeeIds.length - newEmployeeIds.length,
+      message: `${createdRecords.count}件のレコードを作成しました`,
+    })
+  } catch (error) {
+    console.error("個別評価レコード作成エラー:", error)
+    return NextResponse.json(
+      { error: "個別評価レコードの作成に失敗しました" },
+      { status: 500 }
+    )
+  }
+}
