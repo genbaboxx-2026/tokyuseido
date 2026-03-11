@@ -113,6 +113,7 @@ export async function PUT(
       currentStep: body.currentStep,
       currentRank: body.currentRank,
       baseSalary: body.baseSalary,
+      status: body.status,
     };
 
     const employee = await updateEmployee(id, data);

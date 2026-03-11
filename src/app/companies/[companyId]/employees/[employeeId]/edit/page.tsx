@@ -98,6 +98,7 @@ export default async function EditEmployeePage({ params }: PageProps) {
     employeeCode: employee.employeeCode,
     lastName: employee.lastName,
     firstName: employee.firstName,
+    email: employee.email || "",
     gender: employee.gender || "",
     birthDate: formatDateForInput(employee.birthDate),
     hireDate: formatDateForInput(employee.hireDate),
@@ -109,6 +110,7 @@ export default async function EditEmployeePage({ params }: PageProps) {
     currentStep: employee.currentStep || undefined,
     currentRank: employee.currentRank || "",
     baseSalary: employee.baseSalary || undefined,
+    status: employee.status || "ACTIVE",
   };
 
   return (

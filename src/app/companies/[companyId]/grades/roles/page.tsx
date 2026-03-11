@@ -56,6 +56,18 @@ export default async function GradeRolesPage({ params }: PageProps) {
     notFound();
   }
 
+  // 職種カテゴリを取得（RoleMatrix の列順序に使用）
+  const jobCategories = await prisma.jobCategory.findMany({
+    where: { companyId },
+    include: {
+      jobTypes: {
+        orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+        select: { id: true, name: true },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+
   // 有効な等級×職種設定と役割責任を取得
   const configs = await prisma.gradeJobTypeConfig.findMany({
     where: {
@@ -71,7 +83,11 @@ export default async function GradeRolesPage({ params }: PageProps) {
       },
       gradeRole: true,
     },
-    orderBy: [{ grade: { level: "desc" } }, { jobType: { name: "asc" } }],
+    orderBy: [
+      { grade: { level: "desc" } },
+      { jobType: { jobCategory: { name: "asc" } } },
+      { jobType: { name: "asc" } },
+    ],
   });
 
   // 該当従業員を取得
@@ -104,12 +120,9 @@ export default async function GradeRolesPage({ params }: PageProps) {
   });
 
   const roles = configs.map((config) => ({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: config as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    role: config.gradeRole as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    employees: (employeeMap.get(`${config.gradeId}-${config.jobTypeId}`) || []) as any[],
+    config,
+    role: config.gradeRole,
+    employees: employeeMap.get(`${config.gradeId}-${config.jobTypeId}`) || [],
   }));
 
   return (
@@ -141,7 +154,7 @@ export default async function GradeRolesPage({ params }: PageProps) {
         </CardHeader>
         <CardContent>
           <TooltipProvider>
-            <RoleMatrix roles={roles} companyId={companyId} />
+            <RoleMatrix roles={roles} companyId={companyId} jobCategories={jobCategories} />
           </TooltipProvider>
         </CardContent>
       </Card>

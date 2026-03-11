@@ -43,6 +43,8 @@ export interface Evaluation {
     id: string
     firstName: string
     lastName: string
+    email: string | null
+    individualEvaluatorId: string | null
     grade: { id: string; name: string } | null
     jobType: { id: string; name: string } | null
     department: { id: string; name: string } | null

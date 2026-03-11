@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 2. 会社の全アクティブ従業員を取得
+    // 2. 会社の全アクティブ従業員を取得（評価フラグ付き）
     const employees = await prisma.employee.findMany({
       where: {
         companyId,
@@ -105,34 +105,58 @@ export async function POST(request: NextRequest) {
         id: true,
         gradeId: true,
         jobTypeId: true,
+        has360Evaluation: true,
+        hasIndividualEvaluation: true,
+        firstName: true,
+        lastName: true,
+        individualEvaluatorId: true,
       },
     })
 
-    // 3. 等級×職種 → 評価テンプレートのマッピングを取得
-    const templates = await prisma.evaluationTemplate.findMany({
-      where: {
-        gradeJobTypeConfig: {
-          grade: { companyId },
-          isEnabled: true,
-        },
-        isActive: true,
-      },
-      include: {
-        gradeJobTypeConfig: {
-          select: { gradeId: true, jobTypeId: true },
-        },
-        items: {
-          orderBy: { sortOrder: "asc" },
-          select: { id: true },
-        },
-      },
-    })
+    // デバッグログ
+    console.log("=== 評価開始デバッグ ===")
+    console.log("評価種別:", evaluationTypesToCreate)
+    console.log("従業員数:", employees.length)
+    console.log("個別評価対象:", employees.filter(e => e.hasIndividualEvaluation).map(e => `${e.lastName}${e.firstName}`))
+    console.log("360対象:", employees.filter(e => e.has360Evaluation).map(e => `${e.lastName}${e.firstName}`))
 
-    const templateMap = new Map<string, typeof templates[0]>()
-    for (const template of templates) {
-      const key = `${template.gradeJobTypeConfig.gradeId}-${template.gradeJobTypeConfig.jobTypeId}`
-      templateMap.set(key, template)
+    // 3. 従業員ごとにテンプレートを取得（GradeJobTypeConfig経由）
+    // 「対象者を追加」APIと同じロジック
+    const employeeTemplateMap = new Map<string, string>()
+
+    // デバッグ: 最初の従業員のconfigを詳しくログ
+    if (employees.length > 0) {
+      const firstEmp = employees[0]
+      const debugConfig = await prisma.gradeJobTypeConfig.findFirst({
+        where: {
+          gradeId: firstEmp.gradeId!,
+          jobTypeId: firstEmp.jobTypeId!,
+        },
+        include: {
+          evaluationTemplate: true,
+        },
+      })
+      console.log(`デバッグ: ${firstEmp.lastName}${firstEmp.firstName}のconfig:`, JSON.stringify(debugConfig, null, 2))
     }
+
+    for (const emp of employees) {
+      if (emp.gradeId && emp.jobTypeId) {
+        const config = await prisma.gradeJobTypeConfig.findFirst({
+          where: {
+            gradeId: emp.gradeId,
+            jobTypeId: emp.jobTypeId,
+          },
+          include: {
+            evaluationTemplate: { select: { id: true } },
+          },
+        })
+        if (config?.evaluationTemplate?.id) {
+          employeeTemplateMap.set(emp.id, config.evaluationTemplate.id)
+        }
+      }
+    }
+
+    console.log("テンプレートマップ:", employeeTemplateMap.size, "件")
 
     // 4. 従業員ごとにEmployeeEvaluation + EmployeeEvaluationItemを一括作成
     let createdCount = 0
@@ -142,11 +166,14 @@ export async function POST(request: NextRequest) {
       alreadyExists: 0,
     }
 
-    for (const emp of employees) {
-      const key = `${emp.gradeId}-${emp.jobTypeId}`
-      const template = templateMap.get(key)
+    let individualCreatedCount = 0
+    let evaluation360CreatedCount = 0
 
-      if (!template || template.items.length === 0) {
+    for (const emp of employees) {
+      const templateId = employeeTemplateMap.get(emp.id)
+
+      if (!templateId) {
+        console.log(`スキップ(テンプレートなし): ${emp.lastName}${emp.firstName} - gradeId=${emp.gradeId}, jobTypeId=${emp.jobTypeId}`)
         skippedCount++
         skippedReasons.noTemplate++
         continue
@@ -156,11 +183,22 @@ export async function POST(request: NextRequest) {
 
       // 各評価種別ごとにEmployeeEvaluationを作成
       for (const evalType of evaluationTypesToCreate) {
-        // 同一期間・同一従業員・同一テンプレート・同一評価種別で既に存在するか確認
+        // 評価フラグに基づいてフィルタリング
+        // 個別評価: hasIndividualEvaluation=true の従業員のみ
+        // 360評価: has360Evaluation=true の従業員のみ
+        if (evalType === "individual" && !emp.hasIndividualEvaluation) {
+          console.log(`スキップ(個別対象外): ${emp.lastName}${emp.firstName}`)
+          continue
+        }
+        if (evalType === "360" && !emp.has360Evaluation) {
+          console.log(`スキップ(360対象外): ${emp.lastName}${emp.firstName}`)
+          continue
+        }
+
+        // 同一期間・同一従業員・同一評価種別で既に存在するか確認
         const existing = await prisma.employeeEvaluation.findFirst({
           where: {
             employeeId: emp.id,
-            evaluationTemplateId: template.id,
             evaluationPeriodId: period.id,
             evaluationType: evalType,
           },
@@ -174,19 +212,19 @@ export async function POST(request: NextRequest) {
         await prisma.employeeEvaluation.create({
           data: {
             employeeId: emp.id,
-            evaluationTemplateId: template.id,
+            evaluationTemplateId: templateId,
             evaluationPeriodId: period.id,
             evaluationType: evalType,
             status: "STARTED",
-            items: {
-              create: template.items.map((item) => ({
-                evaluationTemplateItemId: item.id,
-              })),
-            },
+            // 個別評価の場合、マスター設定の評価者をコピー
+            evaluatorId: evalType === "individual" ? emp.individualEvaluatorId : null,
           },
         })
 
+        console.log(`作成成功: ${emp.lastName}${emp.firstName} - ${evalType}`)
         createdCount++
+        if (evalType === "individual") individualCreatedCount++
+        if (evalType === "360") evaluation360CreatedCount++
       }
 
       if (empSkipped && createdCount === 0) {
@@ -194,6 +232,11 @@ export async function POST(request: NextRequest) {
         skippedReasons.alreadyExists++
       }
     }
+
+    console.log(`=== EmployeeEvaluation作成結果 ===`)
+    console.log(`個別評価作成数: ${individualCreatedCount}`)
+    console.log(`360評価作成数: ${evaluation360CreatedCount}`)
+    console.log(`スキップ数: ${skippedCount}`)
 
     // 5. 360度評価レコードを一括作成（評価種別に360が含まれる場合）
     let created360Count = 0
@@ -208,8 +251,10 @@ export async function POST(request: NextRequest) {
       })
       const existing360EmployeeIds = new Set(existing360Records.map((r) => r.employeeId))
 
-      // 新規対象者のみフィルタ
-      const new360Employees = employees.filter((emp) => !existing360EmployeeIds.has(emp.id))
+      // has360Evaluation=true かつ 新規対象者のみフィルタ
+      const new360Employees = employees.filter(
+        (emp) => emp.has360Evaluation && !existing360EmployeeIds.has(emp.id)
+      )
 
       if (new360Employees.length > 0) {
         await prisma.evaluation360Record.createMany({

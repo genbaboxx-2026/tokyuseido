@@ -398,7 +398,7 @@ export default function PublicEvaluationForm({
               <span>全体の進捗</span>
               <span className="font-medium">{data.overallProgress}%</span>
             </div>
-            <Progress value={data.overallProgress} className="h-2" />
+            <Progress value={data.overallProgress} className="h-2" aria-label="全体の進捗" />
           </div>
         </div>
       </header>
@@ -652,6 +652,8 @@ function EvaluationItemCard({
             key={score}
             type="button"
             onClick={() => onScoreChange(score)}
+            aria-label={`${item.itemName}: ${score}点`}
+            aria-pressed={currentScore === score}
             className={cn(
               "h-12 w-12 rounded-full font-bold text-lg transition-all duration-150",
               "border-2 hover:scale-105 active:scale-95",

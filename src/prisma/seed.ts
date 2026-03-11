@@ -646,6 +646,67 @@ async function main() {
     console.log(`Created category: ${category.name} with ${categoryData.items.length} items`)
   }
 
+  // 11. 号俸テーブルを作成
+  const salaryTable = await prisma.salaryTable.upsert({
+    where: { id: "salary-table-default" },
+    update: {},
+    create: {
+      id: "salary-table-default",
+      companyId: company.id,
+      name: "号俸テーブル",
+      baseSalaryMax: 506092,
+      baseSalaryMin: 180000,
+      rankDivision: 8,
+      increaseRate: 1.05,
+      initialStepDiff: 1900,
+      totalRanks: 15,
+      isActive: true,
+    },
+  })
+  console.log(`Created salary table: ${salaryTable.name}`)
+
+  // 12. 従業員の現基本給データを作成
+  const employees = await prisma.employee.findMany({
+    where: { companyId: company.id },
+    select: { id: true, employeeCode: true, baseSalary: true },
+  })
+
+  // 現基本給のシードデータ（従業員コードと現基本給のマッピング）
+  const currentSalaryData: Record<string, number> = {
+    "EMP001": 280000,  // 田中太郎 正4
+    "EMP002": 420000,  // 佐藤花子 正2
+    "EMP003": 260000,  // 山本健一 正4
+    "EMP004": 350000,  // 鈴木美咲 正3
+    "EMP005": 220000,  // 高橋大輔 正5
+    "EMP006": 550000,  // 伊藤雄一 正1
+    "EMP007": 195000,  // 渡辺由美 正6
+    "EMP008": 310000,  // 小林翔太 正3
+    "EMP009": 450000,  // 加藤真一 正2
+    "EMP010": 200000,  // 吉田さくら 正5
+    "EMP011": 275000,  // 中村隆 正4
+  }
+
+  for (const emp of employees) {
+    const currentSalary = currentSalaryData[emp.employeeCode] || emp.baseSalary || 0
+    if (currentSalary > 0) {
+      await prisma.employeeCurrentSalary.upsert({
+        where: {
+          employeeId_salaryTableId: {
+            employeeId: emp.id,
+            salaryTableId: salaryTable.id,
+          },
+        },
+        update: { currentSalary },
+        create: {
+          employeeId: emp.id,
+          salaryTableId: salaryTable.id,
+          currentSalary,
+        },
+      })
+    }
+  }
+  console.log(`Created current salary data for ${employees.length} employees`)
+
   console.log("Seeding completed!")
 }
 

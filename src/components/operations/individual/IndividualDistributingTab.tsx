@@ -6,7 +6,6 @@ import {
   Loader2,
   Send,
   CheckCircle2,
-  Circle,
   AlertTriangle,
   Minus,
   ExternalLink,
@@ -40,14 +39,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { EvaluatorCardsAccordion } from "./EvaluatorCardsAccordion"
+import { EvaluatorPortalModal } from "./EvaluatorPortalModal"
 
 interface IndividualDistributingTabProps {
   companyId: string
@@ -58,19 +52,12 @@ interface IndividualDistributingTabProps {
 type Phase = "preparing" | "distributing" | "collected" | "aggregated" | "completed"
 type EvaluationStatus = "STARTED" | "PREPARING" | "DISTRIBUTED" | "COLLECTED" | "AGGREGATING" | "COMPLETED"
 
-const statusOptions: { value: EvaluationStatus; label: string }[] = [
-  { value: "STARTED", label: "開始" },
-  { value: "PREPARING", label: "準備中" },
-  { value: "DISTRIBUTED", label: "配布済" },
-  { value: "COLLECTED", label: "回収済" },
-  { value: "AGGREGATING", label: "集計中" },
-  { value: "COMPLETED", label: "完了" },
-]
-
 interface EvaluationItem {
   id: string
   selfScore: number | null
   evaluatorScore: number | null
+  selfComment?: string | null
+  evaluatorComment?: string | null
   comment: string | null
   templateItem: {
     id: string
@@ -95,10 +82,13 @@ interface Evaluation {
   currentPhase: Phase
   detailStep: "self_reviewing" | "manager_reviewing" | null
   hasChangesFromMaster: boolean
+  selfCompletedAt?: string | null
+  evaluatorCompletedAt?: string | null
   employee: {
     id: string
     firstName: string
     lastName: string
+    individualEvaluatorId: string | null
     grade: { id: string; name: string } | null
     jobType: { id: string; name: string } | null
     department: { id: string; name: string } | null
@@ -113,13 +103,6 @@ interface Evaluation {
   items: EvaluationItem[]
 }
 
-interface Employee {
-  id: string
-  firstName: string
-  lastName: string
-  department?: { name: string } | null
-}
-
 export function IndividualDistributingTab({
   companyId,
   periodId,
@@ -129,6 +112,8 @@ export function IndividualDistributingTab({
   const currentTabPhase: Phase = "distributing"
   const [selectedEvaluation, setSelectedEvaluation] = useState<Evaluation | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [portalOpen, setPortalOpen] = useState(false)
+  const [selectedEvaluatorId, setSelectedEvaluatorId] = useState<string | null>(null)
 
   // 全評価を取得（全タブでキャッシュ共有）
   const { data, isLoading } = useQuery<{ evaluations: Evaluation[] }>({
@@ -143,30 +128,24 @@ export function IndividualDistributingTab({
     staleTime: 30000,
   })
 
-  // 従業員一覧を取得（評価者選択用）
-  const { data: employeesData } = useQuery<{ employees: Employee[] }>({
-    queryKey: ["employees", companyId],
-    queryFn: async () => {
-      const res = await fetch(`/api/companies/${companyId}/employees`)
-      if (!res.ok) throw new Error("従業員データの取得に失敗しました")
-      return res.json()
-    },
-    staleTime: 60000,
-  })
-
-  const employees = employeesData?.employees ?? []
-
   // ローカルでソート（アクティブなものを先頭に）
   const evaluations = useMemo(() => {
     const evals = data?.evaluations ?? []
     return [...evals].sort((a, b) => {
-      const aActive = a.currentPhase === currentTabPhase
-      const bActive = b.currentPhase === currentTabPhase
+      const aActive = a.currentPhase === currentTabPhase || a.currentPhase === "collected"
+      const bActive = b.currentPhase === currentTabPhase || b.currentPhase === "collected"
       if (aActive && !bActive) return -1
       if (!aActive && bActive) return 1
       return 0
     })
   }, [data?.evaluations, currentTabPhase])
+
+  // 配布・回収フェーズの評価のみフィルタ
+  const activeEvaluations = useMemo(() => {
+    return evaluations.filter(
+      (e) => e.currentPhase === "distributing" || e.currentPhase === "collected"
+    )
+  }, [evaluations])
 
   // 一括配布mutation
   const bulkDistributeMutation = useMutation({
@@ -182,30 +161,11 @@ export function IndividualDistributingTab({
       queryClient.invalidateQueries({
         queryKey: ["individualEvaluations", companyId, periodId],
       })
-      onStatusChange()
-      alert(data.message)
-    },
-  })
-
-  // 評価更新mutation（評価者・ステータス）
-  const updateEvaluationMutation = useMutation({
-    mutationFn: async ({ evaluationId, data }: { evaluationId: string; data: { evaluatorId?: string | null; status?: EvaluationStatus } }) => {
-      const res = await fetch(
-        `/api/companies/${companyId}/operations/${periodId}/individual/${evaluationId}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        }
-      )
-      if (!res.ok) throw new Error("更新に失敗しました")
-      return res.json()
-    },
-    onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["individualEvaluations", companyId, periodId],
+        queryKey: ["evaluatorTokens", companyId, periodId],
       })
       onStatusChange()
+      alert(data.message)
     },
   })
 
@@ -214,24 +174,23 @@ export function IndividualDistributingTab({
     setModalOpen(true)
   }
 
-  const handleEvaluatorChange = (evaluationId: string, evaluatorId: string | null) => {
-    updateEvaluationMutation.mutate({
-      evaluationId,
-      data: { evaluatorId },
-    })
+  const handleOpenPortal = (evaluatorId: string, _token: string) => {
+    setSelectedEvaluatorId(evaluatorId)
+    setPortalOpen(true)
   }
 
-  const handleStatusChange = (evaluationId: string, status: EvaluationStatus) => {
-    updateEvaluationMutation.mutate({
-      evaluationId,
-      data: { status },
-    })
-  }
+  // 評価者用のモーダルに渡す評価リスト
+  const evaluatorEvaluations = useMemo(() => {
+    if (!selectedEvaluatorId) return []
+    return activeEvaluations.filter(
+      (e) => e.evaluatorId === selectedEvaluatorId || e.employee.individualEvaluatorId === selectedEvaluatorId
+    )
+  }, [activeEvaluations, selectedEvaluatorId])
 
   // 選択中の評価が更新されたら最新データで置き換え
   const currentEvaluation = useMemo(() => {
     if (!selectedEvaluation) return null
-    return evaluations.find(e => e.id === selectedEvaluation.id) || selectedEvaluation
+    return evaluations.find((e) => e.id === selectedEvaluation.id) || selectedEvaluation
   }, [selectedEvaluation, evaluations])
 
   if (isLoading) {
@@ -243,7 +202,7 @@ export function IndividualDistributingTab({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* 一括操作ボタン */}
       <div className="flex gap-2">
         <AlertDialog>
@@ -265,7 +224,7 @@ export function IndividualDistributingTab({
             <AlertDialogHeader>
               <AlertDialogTitle>一括配布を実行しますか？</AlertDialogTitle>
               <AlertDialogDescription>
-                準備完了状態の全評価を配布します。
+                準備完了状態の全評価を配布します。評価者にURLとパスワードが発行されます。
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -278,114 +237,121 @@ export function IndividualDistributingTab({
         </AlertDialog>
       </div>
 
-      {evaluations.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          評価対象者がいません
-        </div>
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[120px]">従業員名</TableHead>
-              <TableHead className="w-[80px]">部署</TableHead>
-              <TableHead className="w-[60px]">等級</TableHead>
-              <TableHead className="w-[80px]">職種</TableHead>
-              <TableHead className="w-[120px]">評価者</TableHead>
-              <TableHead className="w-[60px]">変更</TableHead>
-              <TableHead className="w-[100px]">状態</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {evaluations.map((evaluation) => {
-              const isCompleted = evaluation.currentPhase === "completed"
+      {/* 評価者カード（アコーディオン） */}
+      <EvaluatorCardsAccordion
+        companyId={companyId}
+        periodId={periodId}
+        onOpenPortal={handleOpenPortal}
+      />
 
-              return (
-                <TableRow
-                  key={evaluation.id}
-                  className={`${isCompleted ? "opacity-50" : ""}`}
-                >
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      <span>{evaluation.employee.lastName} {evaluation.employee.firstName}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-xs"
-                        onClick={() => handleRowClick(evaluation)}
+      {/* 従業員リスト */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium text-muted-foreground">
+          従業員別進捗
+        </h3>
+
+        {activeEvaluations.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground bg-gray-50 rounded-lg">
+            配布済みの評価がありません
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[140px]">氏名</TableHead>
+                <TableHead className="w-[100px]">職種</TableHead>
+                <TableHead className="w-[60px]">等級</TableHead>
+                <TableHead className="w-[80px] text-center">自己評価</TableHead>
+                <TableHead className="w-[80px] text-center">上司評価</TableHead>
+                <TableHead className="w-[150px]">全体進捗</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {activeEvaluations.map((evaluation) => {
+                const selfCompleted = evaluation.selfCompletedAt !== undefined && evaluation.selfCompletedAt !== null
+                const evaluatorCompleted = evaluation.evaluatorCompletedAt !== undefined && evaluation.evaluatorCompletedAt !== null
+
+                // 進捗率を計算（自己評価50% + 上司評価50%）
+                const selfProgress =
+                  evaluation.itemStats.total > 0
+                    ? (evaluation.itemStats.selfScored / evaluation.itemStats.total) * 50
+                    : 0
+                const evaluatorProgress =
+                  evaluation.itemStats.total > 0
+                    ? (evaluation.itemStats.managerScored / evaluation.itemStats.total) * 50
+                    : 0
+                const totalProgress = selfProgress + evaluatorProgress
+
+                return (
+                  <TableRow
+                    key={evaluation.id}
+                    className="cursor-pointer hover:bg-gray-50"
+                    onClick={() => handleRowClick(evaluation)}
+                  >
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <span>
+                          {evaluation.employee.lastName} {evaluation.employee.firstName}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRowClick(evaluation)
+                          }}
+                        >
+                          <ExternalLink className="h-3 w-3 mr-1" />
+                          詳細
+                        </Button>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {evaluation.employee.jobType?.name || "-"}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {evaluation.employee.grade?.name || "-"}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge
+                        variant="outline"
+                        className={
+                          selfCompleted
+                            ? "bg-green-100 text-green-700 border-green-300"
+                            : "bg-red-100 text-red-700 border-red-300"
+                        }
                       >
-                        <ExternalLink className="h-3 w-3 mr-1" />
-                        詳細
-                      </Button>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {evaluation.employee.department?.name || "-"}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {evaluation.employee.grade?.name || "-"}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {evaluation.employee.jobType?.name || "-"}
-                  </TableCell>
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Select
-                      value={evaluation.evaluatorId || "none"}
-                      onValueChange={(value) => handleEvaluatorChange(evaluation.id, value === "none" ? null : value)}
-                      disabled={isCompleted || updateEvaluationMutation.isPending}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="未設定" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">未設定</SelectItem>
-                        {employees
-                          .filter(emp => emp.id !== evaluation.employeeId)
-                          .map((emp) => (
-                            <SelectItem key={emp.id} value={emp.id}>
-                              {emp.lastName} {emp.firstName}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    {evaluation.itemStats.total === 0 ? (
-                      <Minus className="h-4 w-4 text-gray-300" />
-                    ) : evaluation.hasChangesFromMaster ? (
-                      <Badge variant="outline" className="text-amber-600 border-amber-300">
-                        <AlertTriangle className="h-3 w-3 mr-1" />
-                        あり
+                        {selfCompleted ? "提出済" : "未提出"}
                       </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-gray-400">
-                        なし
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge
+                        variant="outline"
+                        className={
+                          evaluatorCompleted
+                            ? "bg-green-100 text-green-700 border-green-300"
+                            : "bg-red-100 text-red-700 border-red-300"
+                        }
+                      >
+                        {evaluatorCompleted ? "評価済" : "未評価"}
                       </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Select
-                      value={evaluation.status}
-                      onValueChange={(value) => handleStatusChange(evaluation.id, value as EvaluationStatus)}
-                      disabled={updateEvaluationMutation.isPending}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {statusOptions.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Progress value={totalProgress} className="h-2 flex-1" />
+                        <span className="text-xs text-muted-foreground w-10 text-right">
+                          {Math.round(totalProgress)}%
+                        </span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </div>
 
       {/* 詳細モーダル */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
@@ -394,9 +360,7 @@ export function IndividualDistributingTab({
             <DialogTitle>
               {currentEvaluation?.employee.lastName} {currentEvaluation?.employee.firstName}
             </DialogTitle>
-            <DialogDescription>
-              配布・回収状況
-            </DialogDescription>
+            <DialogDescription>配布・回収状況</DialogDescription>
           </DialogHeader>
           {currentEvaluation && (
             <ScrollArea className="max-h-[65vh]">
@@ -442,6 +406,9 @@ export function IndividualDistributingTab({
                         <Badge className="bg-amber-100 text-amber-800">上長評価中</Badge>
                       )
                     )}
+                    {currentEvaluation.currentPhase === "collected" && (
+                      <Badge className="bg-green-100 text-green-800">回収済</Badge>
+                    )}
                     {currentEvaluation.currentPhase === "completed" && (
                       <Badge className="bg-green-100 text-green-800">完了</Badge>
                     )}
@@ -456,13 +423,18 @@ export function IndividualDistributingTab({
                       <div className="flex justify-between text-sm mb-1">
                         <span>自己評価</span>
                         <span>
-                          {currentEvaluation.itemStats.selfScored}/{currentEvaluation.itemStats.total}
+                          {currentEvaluation.itemStats.selfScored}/
+                          {currentEvaluation.itemStats.total}
                         </span>
                       </div>
                       <Progress
-                        value={currentEvaluation.itemStats.total > 0
-                          ? (currentEvaluation.itemStats.selfScored / currentEvaluation.itemStats.total) * 100
-                          : 0}
+                        value={
+                          currentEvaluation.itemStats.total > 0
+                            ? (currentEvaluation.itemStats.selfScored /
+                                currentEvaluation.itemStats.total) *
+                              100
+                            : 0
+                        }
                         className="h-2"
                       />
                     </div>
@@ -470,13 +442,18 @@ export function IndividualDistributingTab({
                       <div className="flex justify-between text-sm mb-1">
                         <span>上長評価</span>
                         <span>
-                          {currentEvaluation.itemStats.managerScored}/{currentEvaluation.itemStats.total}
+                          {currentEvaluation.itemStats.managerScored}/
+                          {currentEvaluation.itemStats.total}
                         </span>
                       </div>
                       <Progress
-                        value={currentEvaluation.itemStats.total > 0
-                          ? (currentEvaluation.itemStats.managerScored / currentEvaluation.itemStats.total) * 100
-                          : 0}
+                        value={
+                          currentEvaluation.itemStats.total > 0
+                            ? (currentEvaluation.itemStats.managerScored /
+                                currentEvaluation.itemStats.total) *
+                              100
+                            : 0
+                        }
                         className="h-2"
                       />
                     </div>
@@ -499,52 +476,76 @@ export function IndividualDistributingTab({
                   ) : (
                     <div className="space-y-3">
                       {(() => {
-                        const itemsByCategory = currentEvaluation.items.reduce((acc, item) => {
-                          const category = item.templateItem?.category || "未分類"
-                          if (!acc[category]) acc[category] = []
-                          acc[category].push(item)
-                          return acc
-                        }, {} as Record<string, EvaluationItem[]>)
+                        const itemsByCategory = currentEvaluation.items.reduce(
+                          (acc, item) => {
+                            const category = item.templateItem?.category || "未分類"
+                            if (!acc[category]) acc[category] = []
+                            acc[category].push(item)
+                            return acc
+                          },
+                          {} as Record<string, EvaluationItem[]>
+                        )
 
-                        return Object.entries(itemsByCategory).map(([category, items]) => (
-                          <div key={category} className="border rounded-lg overflow-hidden">
-                            <div className="bg-gray-100 px-3 py-2 text-sm font-medium">
-                              {category}
-                            </div>
-                            <div className="divide-y">
-                              {items.map((item) => (
-                                <div key={item.id} className="px-3 py-3">
-                                  <div className="flex items-start justify-between gap-4">
-                                    <div className="flex-1">
-                                      <div className="font-medium text-sm">
-                                        {item.templateItem?.name || "項目名なし"}
+                        return Object.entries(itemsByCategory).map(
+                          ([category, items]) => (
+                            <div
+                              key={category}
+                              className="border rounded-lg overflow-hidden"
+                            >
+                              <div className="bg-gray-100 px-3 py-2 text-sm font-medium">
+                                {category}
+                              </div>
+                              <div className="divide-y">
+                                {items.map((item) => (
+                                  <div key={item.id} className="px-3 py-3">
+                                    <div className="flex items-start justify-between gap-4">
+                                      <div className="flex-1">
+                                        <div className="font-medium text-sm">
+                                          {item.templateItem?.name || "項目名なし"}
+                                        </div>
+                                        {item.templateItem?.description && (
+                                          <div className="text-xs text-muted-foreground mt-1">
+                                            {item.templateItem.description}
+                                          </div>
+                                        )}
                                       </div>
-                                      {item.templateItem?.description && (
-                                        <div className="text-xs text-muted-foreground mt-1">
-                                          {item.templateItem.description}
+                                      <div className="flex gap-2 shrink-0">
+                                        <div className="text-center">
+                                          <div
+                                            className={`text-sm font-bold ${
+                                              item.selfScore !== null
+                                                ? "text-blue-600"
+                                                : "text-gray-300"
+                                            }`}
+                                          >
+                                            {item.selfScore ?? "-"}
+                                          </div>
+                                          <div className="text-[10px] text-muted-foreground">
+                                            自己
+                                          </div>
                                         </div>
-                                      )}
-                                    </div>
-                                    <div className="flex gap-2 shrink-0">
-                                      <div className="text-center">
-                                        <div className={`text-sm font-bold ${item.selfScore !== null ? "text-blue-600" : "text-gray-300"}`}>
-                                          {item.selfScore ?? "-"}
+                                        <div className="text-center">
+                                          <div
+                                            className={`text-sm font-bold ${
+                                              item.evaluatorScore !== null
+                                                ? "text-amber-600"
+                                                : "text-gray-300"
+                                            }`}
+                                          >
+                                            {item.evaluatorScore ?? "-"}
+                                          </div>
+                                          <div className="text-[10px] text-muted-foreground">
+                                            上長
+                                          </div>
                                         </div>
-                                        <div className="text-[10px] text-muted-foreground">自己</div>
-                                      </div>
-                                      <div className="text-center">
-                                        <div className={`text-sm font-bold ${item.evaluatorScore !== null ? "text-amber-600" : "text-gray-300"}`}>
-                                          {item.evaluatorScore ?? "-"}
-                                        </div>
-                                        <div className="text-[10px] text-muted-foreground">上長</div>
                                       </div>
                                     </div>
                                   </div>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        ))
+                          )
+                        )
                       })()}
                     </div>
                   )}
@@ -554,6 +555,16 @@ export function IndividualDistributingTab({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* 評価者ポータルモーダル */}
+      <EvaluatorPortalModal
+        open={portalOpen}
+        onOpenChange={setPortalOpen}
+        companyId={companyId}
+        periodId={periodId}
+        evaluatorId={selectedEvaluatorId}
+        evaluations={evaluatorEvaluations}
+      />
     </div>
   )
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog"
 import { ResponsibilityList } from "./ResponsibilityList"
 import { GRADE_UI_TEXT } from "@/lib/grade/constants"
-import { ChevronDown, ChevronRight, Save, Users } from "lucide-react"
+import { ChevronDown, ChevronRight, Save, Users, Loader2 } from "lucide-react"
 
 interface Employee {
   id: string
@@ -71,6 +71,11 @@ export function RoleEditModal({
 }: RoleEditModalProps) {
   const [gradeStates, setGradeStates] = useState<GradeState[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [isBulkSaving, setIsBulkSaving] = useState(false)
+
+  const hasAnyChanges = useMemo(() => {
+    return gradeStates.some((s) => s.isDirty)
+  }, [gradeStates])
 
   // 役割データからGradeStateを初期化
   useEffect(() => {
@@ -120,28 +125,24 @@ export function RoleEditModal({
     []
   )
 
-  const handleSave = useCallback(
-    async (gradeLevel: number) => {
-      const state = gradeStates.find((s) => s.gradeLevel === gradeLevel)
-      if (!state) return
+  const handleBulkSave = useCallback(async () => {
+    const dirtyStates = gradeStates.filter((s) => s.isDirty)
+    if (dirtyStates.length === 0) return
 
-      setGradeStates((prev) =>
-        prev.map((s) =>
-          s.gradeLevel === gradeLevel ? { ...s, isSaving: true } : s
+    setIsBulkSaving(true)
+    setError(null)
+
+    try {
+      const results: { gradeLevel: number; roleId: string }[] = []
+
+      for (const state of dirtyStates) {
+        const filteredResponsibilities = state.responsibilities.filter(
+          (r) => r.trim() !== ""
         )
-      )
-      setError(null)
 
-      // 空の責任を除外
-      const filteredResponsibilities = state.responsibilities.filter(
-        (r) => r.trim() !== ""
-      )
-
-      try {
         let response: Response
 
         if (state.roleId) {
-          // 更新
           response = await fetch(`/api/grades/roles/${state.roleId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -150,7 +151,6 @@ export function RoleEditModal({
             }),
           })
         } else {
-          // 新規作成
           response = await fetch("/api/grades/roles", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -164,32 +164,32 @@ export function RoleEditModal({
 
         if (!response.ok) {
           const errorData = await response.json()
-          throw new Error(errorData.error || GRADE_UI_TEXT.ERROR_OCCURRED)
+          throw new Error(
+            `${state.gradeName}: ${errorData.error || GRADE_UI_TEXT.ERROR_OCCURRED}`
+          )
         }
 
         const savedData = await response.json()
-
-        // ステートを更新
-        setGradeStates((prev) =>
-          prev.map((s) =>
-            s.gradeLevel === gradeLevel
-              ? { ...s, isSaving: false, isDirty: false, roleId: savedData.id }
-              : s
-          )
-        )
-
-        onSave()
-      } catch (err) {
-        setError(err instanceof Error ? err.message : GRADE_UI_TEXT.ERROR_OCCURRED)
-        setGradeStates((prev) =>
-          prev.map((s) =>
-            s.gradeLevel === gradeLevel ? { ...s, isSaving: false } : s
-          )
-        )
+        results.push({ gradeLevel: state.gradeLevel, roleId: savedData.id })
       }
-    },
-    [gradeStates, onSave]
-  )
+
+      setGradeStates((prev) =>
+        prev.map((s) => {
+          const result = results.find((r) => r.gradeLevel === s.gradeLevel)
+          if (result) {
+            return { ...s, isDirty: false, roleId: result.roleId }
+          }
+          return s
+        })
+      )
+
+      onSave()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : GRADE_UI_TEXT.ERROR_OCCURRED)
+    } finally {
+      setIsBulkSaving(false)
+    }
+  }, [gradeStates, onSave])
 
   if (allRoles.length === 0) return null
 
@@ -197,10 +197,31 @@ export function RoleEditModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="!max-w-[calc(100vw-80px)] w-[calc(100vw-80px)] h-[90vh] flex flex-col p-0">
         <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b">
-          <DialogTitle>{GRADE_UI_TEXT.ROLE_RESPONSIBILITY}</DialogTitle>
-          <DialogDescription>
-            {categoryName} / {jobTypeName} - 全等級
-          </DialogDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <DialogTitle>{GRADE_UI_TEXT.ROLE_RESPONSIBILITY}</DialogTitle>
+              <DialogDescription>
+                {categoryName} / {jobTypeName} - 全等級
+              </DialogDescription>
+            </div>
+            <Button
+              onClick={handleBulkSave}
+              disabled={!hasAnyChanges || isBulkSaving}
+              className="ml-4"
+            >
+              {isBulkSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  保存中...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  保存
+                </>
+              )}
+            </Button>
+          </div>
         </DialogHeader>
 
         {error && (
@@ -213,38 +234,28 @@ export function RoleEditModal({
           {gradeStates.map((state) => (
             <div key={state.gradeLevel} className="border rounded-lg overflow-hidden">
               {/* 等級ヘッダー */}
-              <div className="w-full flex items-center justify-between p-3 bg-muted/50">
-                <div
-                  className="flex items-center gap-3 cursor-pointer hover:opacity-70 transition-opacity flex-1"
-                  onClick={() => toggleExpand(state.gradeLevel)}
-                >
-                  {state.isExpanded ? (
-                    <ChevronDown className="h-4 w-4" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4" />
-                  )}
-                  <span className="font-bold text-lg">{state.gradeName}</span>
-                  <Badge variant="secondary" className="text-xs">
-                    {state.responsibilities.filter((r) => r.trim()).length}項目
+              <div
+                className="w-full flex items-center gap-3 p-3 bg-muted/50 cursor-pointer hover:bg-muted/70 transition-colors"
+                onClick={() => toggleExpand(state.gradeLevel)}
+              >
+                {state.isExpanded ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+                <span className="font-bold text-lg">{state.gradeName}</span>
+                <Badge variant="secondary" className="text-xs">
+                  {state.responsibilities.filter((r) => r.trim()).length}項目
+                </Badge>
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Users className="h-3 w-3" />
+                  {state.employees.length}名
+                </span>
+                {state.isDirty && (
+                  <Badge variant="outline" className="text-xs text-orange-500 border-orange-300">
+                    未保存
                   </Badge>
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Users className="h-3 w-3" />
-                    {state.employees.length}名
-                  </span>
-                  {state.isDirty && (
-                    <Badge variant="outline" className="text-xs text-orange-500 border-orange-300">
-                      未保存
-                    </Badge>
-                  )}
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => handleSave(state.gradeLevel)}
-                  disabled={state.isSaving}
-                >
-                  <Save className="h-3 w-3 mr-1" />
-                  {state.isSaving ? "..." : "保存"}
-                </Button>
+                )}
               </div>
 
               {/* 内容 */}
@@ -285,7 +296,7 @@ export function RoleEditModal({
                         onChange={(newResp) =>
                           handleResponsibilityChange(state.gradeLevel, newResp)
                         }
-                        disabled={state.isSaving}
+                        disabled={isBulkSaving}
                       />
                     </div>
                   </div>

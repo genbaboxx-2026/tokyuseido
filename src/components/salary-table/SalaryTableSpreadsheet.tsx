@@ -86,38 +86,100 @@ export function SalaryTableSpreadsheet({
     return `${rankBand.rank}${positionInBand}`
   }
 
-  // 従業員を号俸でグループ化
+  // 号俸番号が指定した等級の範囲内に含まれるかチェック
+  const isStepInGradeRange = (stepNumber: number, gradeId: string): boolean => {
+    const assignment = calculationResult.gradeBandAssignments.find(a => a.gradeId === gradeId)
+    if (!assignment) return false
+    return stepNumber >= assignment.startStep && stepNumber <= assignment.endStep
+  }
+
+  // 号俸番号から該当する等級を全て取得（オーバーラップ考慮）
+  const getGradesForStep = (stepNumber: number): Grade[] => {
+    const matchingGrades: Grade[] = []
+    for (const assignment of calculationResult.gradeBandAssignments) {
+      if (stepNumber >= assignment.startStep && stepNumber <= assignment.endStep) {
+        const grade = grades.find(g => g.id === assignment.gradeId)
+        if (grade) matchingGrades.push(grade)
+      }
+    }
+    return matchingGrades
+  }
+
+  // 従業員情報（ミスマッチ情報付き）
+  type RangeStatus = "ok" | "above_max" | "below_min" | "grade_mismatch"
+  
+  interface EmployeeWithMismatch extends Employee {
+    targetStep: number
+    tableGrades: Grade[]
+    isMismatch: boolean
+    rangeStatus: RangeStatus
+    gradeMinSalary: number | null
+    gradeMaxSalary: number | null
+  }
+
+  // 従業員を号俸でグループ化（等級関係なく、現基本給以上で最も低い号俸を検索）
   const employeesByStep = useMemo(() => {
-    const map = new Map<number, Employee[]>()
+    const map = new Map<number, EmployeeWithMismatch[]>()
 
     for (const emp of employees) {
       if (!emp.baseSalary || !emp.gradeId) continue
 
-      // 最も近い号俸を検索
-      const range = gradeStepRanges.get(emp.gradeId)
-      if (!range) continue
+      // 従業員の等級のレンジを取得
+      const empGradeAssignment = calculationResult.gradeBandAssignments.find(a => a.gradeId === emp.gradeId)
+      const gradeMinSalary = empGradeAssignment?.minSalary ?? null
+      const gradeMaxSalary = empGradeAssignment?.maxSalary ?? null
 
-      let closestStep: number | null = null
-      let minDiff = Infinity
+      // 号俸テーブル全体から現基本給以上の号俸を昇順でソート
+      const eligibleSteps = calculationResult.salaryLadder
+        .filter(step => step.baseSalary >= emp.baseSalary)
+        .sort((a, b) => a.baseSalary - b.baseSalary)
 
-      for (const step of calculationResult.salaryLadder) {
-        if (step.stepNumber < range.startStep || step.stepNumber > range.endStep) continue
-        const diff = Math.abs(step.baseSalary - emp.baseSalary)
-        if (diff < minDiff) {
-          minDiff = diff
-          closestStep = step.stepNumber
-        }
+      let targetStep: number | null = null
+
+      if (eligibleSteps.length > 0) {
+        // 現基本給以上で最も低い号俸を選択
+        targetStep = eligibleSteps[0].stepNumber
+      } else {
+        // 現基本給以上の号俸がない場合、テーブルの最高号俸を選択
+        const maxStep = calculationResult.salaryLadder.sort((a, b) => b.baseSalary - a.baseSalary)[0]
+        targetStep = maxStep?.stepNumber ?? null
       }
 
-      if (closestStep !== null) {
-        const existing = map.get(closestStep) || []
-        existing.push(emp)
-        map.set(closestStep, existing)
+      if (targetStep !== null) {
+        // この号俸が属する等級を全て取得
+        const tableGrades = getGradesForStep(targetStep)
+        
+        // ミスマッチ判定：従業員の等級が、当てはまった号俸の範囲に含まれているか
+        const isMismatch = !isStepInGradeRange(targetStep, emp.gradeId)
+
+        // レンジ状態を判定
+        let rangeStatus: RangeStatus = "ok"
+        if (isMismatch) {
+          rangeStatus = "grade_mismatch"
+        } else if (gradeMaxSalary !== null && emp.baseSalary > gradeMaxSalary) {
+          rangeStatus = "above_max"
+        } else if (gradeMinSalary !== null && emp.baseSalary < gradeMinSalary) {
+          rangeStatus = "below_min"
+        }
+
+        const empWithMismatch: EmployeeWithMismatch = {
+          ...emp,
+          targetStep,
+          tableGrades,
+          isMismatch,
+          rangeStatus,
+          gradeMinSalary,
+          gradeMaxSalary,
+        }
+
+        const existing = map.get(targetStep) || []
+        existing.push(empWithMismatch)
+        map.set(targetStep, existing)
       }
     }
 
     return map
-  }, [employees, gradeStepRanges, calculationResult.salaryLadder])
+  }, [employees, calculationResult.salaryLadder, calculationResult.gradeBandAssignments, grades])
 
   // 号俸帯表示を生成（号俸帯番号 + T/通常）
   const getBandDisplay = (stepNumber: number): string => {
@@ -182,6 +244,7 @@ export function SalaryTableSpreadsheet({
             <th className="bg-gray-100 dark:bg-gray-800 px-2 py-1 border-r" />
             <th className="bg-gray-100 dark:bg-gray-800 px-2 py-1 border-r" />
             <th className="bg-gray-100 dark:bg-gray-800 px-2 py-1 border-r" />
+            <th className="bg-gray-100 dark:bg-gray-800 px-2 py-1 border-r" />
             <th
               colSpan={sortedGrades.length}
               className="bg-blue-100 dark:bg-blue-900 px-2 py-1 text-center font-semibold border-r"
@@ -213,6 +276,9 @@ export function SalaryTableSpreadsheet({
             <th className="bg-gray-200 dark:bg-gray-700 px-2 py-1.5 text-right font-semibold min-w-[60px] border-r">
               増加率
             </th>
+            <th className="bg-amber-100 dark:bg-amber-900/50 px-2 py-1.5 text-center font-semibold min-w-[140px] border-r">
+              該当者(現給与ベース)
+            </th>
             {sortedGrades.map((grade) => (
               <th
                 key={grade.id}
@@ -221,8 +287,8 @@ export function SalaryTableSpreadsheet({
                 {grade.name}
               </th>
             ))}
-            <th className="bg-gray-200 dark:bg-gray-700 px-2 py-1.5 text-left font-semibold min-w-[120px]">
-              該当者
+            <th className="bg-red-100 dark:bg-red-900/50 px-2 py-1.5 text-center font-semibold min-w-[100px]">
+              等級確認
             </th>
           </tr>
         </thead>
@@ -292,6 +358,26 @@ export function SalaryTableSpreadsheet({
                     </span>
                   ) : null}
                 </td>
+                {/* 該当者 */}
+                <td className="px-2 py-0.5 text-center text-xs border-r bg-amber-50/50 dark:bg-amber-900/20">
+                  {stepEmployees.length > 0 ? (
+                    <div className="flex flex-col gap-0.5 items-center">
+                      {stepEmployees.map((emp) => {
+                        const gradeName = grades.find(g => g.id === emp.gradeId)?.name || ""
+                        return (
+                          <button
+                            key={emp.id}
+                            type="button"
+                            onClick={() => handleEmployeeClick(emp.id)}
+                            className="whitespace-nowrap hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer"
+                          >
+                            {gradeName}：{emp.lastName} {emp.firstName}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </td>
                 {/* 等級ランク列 */}
                 {sortedGrades.map((grade) => {
                   const rankName = getGradeRankForStep(grade.id, step.stepNumber)
@@ -305,22 +391,52 @@ export function SalaryTableSpreadsheet({
                     </td>
                   )
                 })}
-                {/* 該当者 */}
+                {/* 等級確認列 */}
                 <td className="px-2 py-0.5 text-left text-xs">
                   {stepEmployees.length > 0 ? (
                     <div className="flex flex-col gap-0.5">
                       {stepEmployees.map((emp) => {
-                        const gradeName = grades.find(g => g.id === emp.gradeId)?.name || ""
-                        return (
-                          <button
-                            key={emp.id}
-                            type="button"
-                            onClick={() => handleEmployeeClick(emp.id)}
-                            className="whitespace-nowrap text-left hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer"
-                          >
-                            {gradeName}{emp.lastName} {emp.firstName}
-                          </button>
-                        )
+                        const empGradeName = grades.find(g => g.id === emp.gradeId)?.name || ""
+                        const tableGradeNames = emp.tableGrades.map(g => g.name).join("/") || "範囲外"
+                        
+                        switch (emp.rangeStatus) {
+                          case "ok":
+                            return (
+                              <span
+                                key={emp.id}
+                                className="whitespace-nowrap text-green-600 dark:text-green-400"
+                              >
+                                ✓{emp.lastName}
+                              </span>
+                            )
+                          case "above_max":
+                            return (
+                              <span
+                                key={emp.id}
+                                className="whitespace-nowrap text-orange-600 dark:text-orange-400 font-medium"
+                              >
+                                ⚠{emp.lastName} 上限超過
+                              </span>
+                            )
+                          case "below_min":
+                            return (
+                              <span
+                                key={emp.id}
+                                className="whitespace-nowrap text-blue-600 dark:text-blue-400 font-medium"
+                              >
+                                ⚠{emp.lastName} 下限不足
+                              </span>
+                            )
+                          case "grade_mismatch":
+                            return (
+                              <span
+                                key={emp.id}
+                                className="whitespace-nowrap text-red-600 dark:text-red-400 font-medium"
+                              >
+                                ⚠{emp.lastName} 役割:{empGradeName}→給与:{tableGradeNames}
+                              </span>
+                            )
+                        }
                       })}
                     </div>
                   ) : null}

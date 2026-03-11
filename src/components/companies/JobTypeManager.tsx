@@ -1,9 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  horizontalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,11 +53,13 @@ import {
   JobTypeFormData,
 } from '@/lib/company/validation';
 import { COMPANY_LABELS } from '@/lib/company/constants';
+import { GripVertical } from 'lucide-react';
 
 interface JobType {
   id: string;
   name: string;
   jobCategoryId: string;
+  displayOrder?: number;
 }
 
 interface JobCategory {
@@ -54,12 +73,100 @@ interface JobTypeManagerProps {
   jobCategories: JobCategory[];
 }
 
+function SortableJobType({ jobType }: { jobType: JobType }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: jobType.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-1 px-3 py-1 bg-secondary text-secondary-foreground rounded-md text-sm cursor-grab active:cursor-grabbing"
+    >
+      <GripVertical
+        className="h-3 w-3 text-muted-foreground"
+        {...attributes}
+        {...listeners}
+      />
+      {jobType.name}
+    </div>
+  );
+}
+
 export function JobTypeManager({ companyId, jobCategories }: JobTypeManagerProps) {
   const router = useRouter();
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
   const [isJobTypeDialogOpen, setIsJobTypeDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [localCategories, setLocalCategories] = useState(jobCategories);
+  const [isReordering, setIsReordering] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent, categoryId: string) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const category = localCategories.find((c) => c.id === categoryId);
+      if (!category) return;
+
+      const oldIndex = category.jobTypes.findIndex((jt) => jt.id === active.id);
+      const newIndex = category.jobTypes.findIndex((jt) => jt.id === over.id);
+
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      const newJobTypes = arrayMove(category.jobTypes, oldIndex, newIndex);
+      
+      setLocalCategories((prev) =>
+        prev.map((c) =>
+          c.id === categoryId ? { ...c, jobTypes: newJobTypes } : c
+        )
+      );
+
+      setIsReordering(true);
+      try {
+        const response = await fetch(`/api/companies/${companyId}/job-types/reorder`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jobCategoryId: categoryId,
+            jobTypeIds: newJobTypes.map((jt) => jt.id),
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('順番の更新に失敗しました');
+        }
+
+        router.refresh();
+      } catch (err) {
+        console.error(err);
+        setLocalCategories(jobCategories);
+      } finally {
+        setIsReordering(false);
+      }
+    },
+    [localCategories, companyId, router, jobCategories]
+  );
 
   const categoryForm = useForm<JobCategoryFormData>({
     resolver: zodResolver(jobCategorySchema),
@@ -165,7 +272,7 @@ export function JobTypeManager({ companyId, jobCategories }: JobTypeManagerProps
           </p>
         ) : (
           <div className="space-y-6">
-            {jobCategories.map((category) => (
+            {localCategories.map((category) => (
               <div key={category.id} className="border rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="font-semibold text-lg">{category.name}</h4>
@@ -182,16 +289,25 @@ export function JobTypeManager({ companyId, jobCategories }: JobTypeManagerProps
                     職種がありません
                   </p>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {category.jobTypes.map((jobType) => (
-                      <span
-                        key={jobType.id}
-                        className="px-3 py-1 bg-secondary text-secondary-foreground rounded-md text-sm"
-                      >
-                        {jobType.name}
-                      </span>
-                    ))}
-                  </div>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(event) => handleDragEnd(event, category.id)}
+                  >
+                    <SortableContext
+                      items={category.jobTypes.map((jt) => jt.id)}
+                      strategy={horizontalListSortingStrategy}
+                    >
+                      <div className="flex flex-wrap gap-2">
+                        {category.jobTypes.map((jobType) => (
+                          <SortableJobType key={jobType.id} jobType={jobType} />
+                        ))}
+                      </div>
+                    </SortableContext>
+                    {isReordering && (
+                      <p className="text-xs text-muted-foreground mt-2">保存中...</p>
+                    )}
+                  </DndContext>
                 )}
               </div>
             ))}

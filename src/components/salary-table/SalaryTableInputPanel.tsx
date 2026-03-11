@@ -110,13 +110,17 @@ export function SalaryTableInputPanel({
                   <FormControl>
                     <div className="relative">
                       <Input
-                        type="number"
-                        min={SALARY_TABLE_LIMITS.baseSalaryMin.min}
-                        max={SALARY_TABLE_LIMITS.baseSalaryMin.max}
-                        step={10000}
+                        type="text"
+                        inputMode="numeric"
                         className="h-9 pr-8"
-                        {...field}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        value={new Intl.NumberFormat("ja-JP").format(field.value || 0)}
+                        onChange={(e) => {
+                          const rawValue = e.target.value.replace(/,/g, "")
+                          const numValue = Number(rawValue)
+                          if (!isNaN(numValue)) {
+                            field.onChange(numValue)
+                          }
+                        }}
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                         円
@@ -244,13 +248,17 @@ export function SalaryTableInputPanel({
                   <FormControl>
                     <div className="relative">
                       <Input
-                        type="number"
-                        min={SALARY_TABLE_LIMITS.initialStepDiff.min}
-                        max={SALARY_TABLE_LIMITS.initialStepDiff.max}
-                        step={100}
+                        type="text"
+                        inputMode="numeric"
                         className="h-9 pr-8"
-                        {...field}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        value={new Intl.NumberFormat("ja-JP").format(field.value || 0)}
+                        onChange={(e) => {
+                          const rawValue = e.target.value.replace(/,/g, "")
+                          const numValue = Number(rawValue)
+                          if (!isNaN(numValue)) {
+                            field.onChange(numValue)
+                          }
+                        }}
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                         円

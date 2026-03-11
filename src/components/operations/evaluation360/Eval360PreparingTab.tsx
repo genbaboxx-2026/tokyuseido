@@ -655,7 +655,6 @@ export function Eval360PreparingTab({
 
   // 配布確認ハンドラー
   const handleDistributionConfirm = (deadline: Date, _emailOverrides: Record<string, string>) => {
-    // TODO: emailOverridesはAPIに渡して、メール送信時に使用する（将来対応）
     startDistributionMutation.mutate({
       responseDeadline: deadline.toISOString(),
     })

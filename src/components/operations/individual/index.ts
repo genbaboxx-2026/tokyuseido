@@ -1,7 +1,6 @@
 export { IndividualEvaluationSection } from "./IndividualEvaluationSection"
 export { IndividualPreparingTab } from "./IndividualPreparingTab"
 export { IndividualDistributingTab } from "./IndividualDistributingTab"
-export { IndividualCollectedTab } from "./IndividualCollectedTab"
 export { IndividualAggregatedTab } from "./IndividualAggregatedTab"
 export { IndividualCompletedTab } from "./IndividualCompletedTab"
 

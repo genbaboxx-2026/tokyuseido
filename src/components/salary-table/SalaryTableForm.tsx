@@ -179,12 +179,16 @@ export function SalaryTableForm({
                     <FormControl>
                       <div className="relative">
                         <Input
-                          type="number"
-                          min={SALARY_TABLE_LIMITS.baseSalaryMin.min}
-                          max={SALARY_TABLE_LIMITS.baseSalaryMin.max}
-                          step={10000}
-                          {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
+                          type="text"
+                          inputMode="numeric"
+                          value={formatCurrency(field.value || 0)}
+                          onChange={(e) => {
+                            const rawValue = e.target.value.replace(/,/g, "")
+                            const numValue = Number(rawValue)
+                            if (!isNaN(numValue)) {
+                              field.onChange(numValue)
+                            }
+                          }}
                         />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                           {SALARY_TABLE_UI_TEXT.YEN}
@@ -209,12 +213,16 @@ export function SalaryTableForm({
                     <FormControl>
                       <div className="relative">
                         <Input
-                          type="number"
-                          min={SALARY_TABLE_LIMITS.initialStepDiff.min}
-                          max={SALARY_TABLE_LIMITS.initialStepDiff.max}
-                          step={100}
-                          {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
+                          type="text"
+                          inputMode="numeric"
+                          value={formatCurrency(field.value || 0)}
+                          onChange={(e) => {
+                            const rawValue = e.target.value.replace(/,/g, "")
+                            const numValue = Number(rawValue)
+                            if (!isNaN(numValue)) {
+                              field.onChange(numValue)
+                            }
+                          }}
                         />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                           {SALARY_TABLE_UI_TEXT.YEN}

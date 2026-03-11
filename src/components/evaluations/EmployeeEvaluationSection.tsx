@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import dynamic from "next/dynamic"
 import {
@@ -30,6 +30,8 @@ import {
   Users,
   UserCircle,
   FileText,
+  Save,
+  Loader2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { GradeRoleData } from "./EvaluationTemplateDialog"
@@ -58,6 +60,7 @@ export interface Employee {
   has360Evaluation?: boolean
   hasIndividualEvaluation?: boolean
   evaluator360Ids?: string[]
+  individualEvaluatorId?: string | null
 }
 
 // 評価ステータス型
@@ -78,8 +81,16 @@ export function EmployeeEvaluationSection({
   const [employeeStatuses, setEmployeeStatuses] = useState<Record<string, EvaluationStatusType>>({})
   // 360度評価の評価者設定 (employeeId -> [evaluator1Id, evaluator2Id, ...])
   const [evaluators, setEvaluators] = useState<Record<string, (string | null)[]>>({})
+  // 360度評価の初期評価者設定（変更検知用）
+  const [initialEvaluators, setInitialEvaluators] = useState<Record<string, (string | null)[]>>({})
+  // 360度評価者の保存中フラグ
+  const [isSaving360Evaluators, setIsSaving360Evaluators] = useState(false)
   // 個別評価の評価者設定 (employeeId -> evaluatorId)
   const [individualEvaluators, setIndividualEvaluators] = useState<Record<string, string | null>>({})
+  // 個別評価の初期評価者設定（変更検知用）
+  const [initialIndividualEvaluators, setInitialIndividualEvaluators] = useState<Record<string, string | null>>({})
+  // 個別評価者の保存中フラグ
+  const [isSavingIndividualEvaluators, setIsSavingIndividualEvaluators] = useState(false)
   // リアルタイムプレビュー用のスコア（モーダル編集中）
   const [previewScores, setPreviewScores] = useState<Record<string, number>>({})
 
@@ -133,11 +144,6 @@ export function EmployeeEvaluationSection({
         return { maxScores360: {}, maxScoresIndividual: {}, maxScorePerItem: 5 }
       }
       const data = await res.json()
-      // デバッグ: コンソールに出力
-      if (data._debug) {
-        console.log("[満点デバッグ]", data._debug)
-        console.log("[満点データ] maxScoresIndividual:", data.maxScoresIndividual)
-      }
       return data
     },
     staleTime: 5 * 60 * 1000,
@@ -197,9 +203,9 @@ export function EmployeeEvaluationSection({
     }
   }, [dbStatuses])
 
-  // 従業員データから評価者を同期（DBが常に最新）
+  // 従業員データから360度評価者を同期（DBが常に最新）
   useEffect(() => {
-    if (employees && employees.length > 0) {
+    if (employees && employees.length > 0 && evaluationType === "360") {
       const dbEvaluators: Record<string, (string | null)[]> = {}
       employees.forEach((emp) => {
         // DBから取得した評価者IDを5枠の配列に変換
@@ -214,8 +220,21 @@ export function EmployeeEvaluationSection({
         dbEvaluators[emp.id] = evaluatorSlots
       })
       setEvaluators(dbEvaluators)
+      setInitialEvaluators(JSON.parse(JSON.stringify(dbEvaluators)))
     }
-  }, [employees])
+  }, [employees, evaluationType])
+
+  // 従業員データから個別評価の評価者を同期（DBが常に最新）
+  useEffect(() => {
+    if (employees && employees.length > 0 && evaluationType === "individual") {
+      const dbIndividualEvaluators: Record<string, string | null> = {}
+      employees.forEach((emp) => {
+        dbIndividualEvaluators[emp.id] = emp.individualEvaluatorId ?? null
+      })
+      setIndividualEvaluators(dbIndividualEvaluators)
+      setInitialIndividualEvaluators(dbIndividualEvaluators)
+    }
+  }, [employees, evaluationType])
 
   const handleViewItems = (employee: Employee) => {
     setSelectedEmployee(employee)
@@ -253,7 +272,7 @@ export function EmployeeEvaluationSection({
     setEmployeeStatuses((prev) => ({ ...prev, [employeeId]: status }))
   }
 
-  // 評価者をDBに保存
+  // 評価者をDBに保存（360度評価）
   const saveEvaluatorsToDb = useCallback(async (employeeId: string, evaluatorIds: (string | null)[]) => {
     // nullを除いた有効なIDのみを保存
     const validIds = evaluatorIds.filter((id): id is string => id !== null)
@@ -268,16 +287,27 @@ export function EmployeeEvaluationSection({
     }
   }, [])
 
-  // 評価者を変更
+  // 個別評価の評価者をDBに保存
+  const saveIndividualEvaluatorToDb = useCallback(async (employeeId: string, evaluatorId: string | null) => {
+    const res = await fetch(`/api/employees/${employeeId}/evaluator-individual`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ evaluatorId }),
+    })
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}))
+      console.error("個別評価の評価者保存エラー:", { status: res.status, error: errorData })
+      throw new Error(errorData.error || `保存に失敗しました (${res.status})`)
+    }
+    return res.json()
+  }, [])
+
+  // 評価者を変更（ローカル状態のみ更新、保存はボタンで）
   const handleEvaluatorChange = (employeeId: string, index: number, evaluatorId: string | null) => {
     setEvaluators((prev) => {
       const current = prev[employeeId] || [null, null, null, null, null]
       const updated = [...current]
       updated[index] = evaluatorId
-
-      // DBに保存（非同期で実行）
-      saveEvaluatorsToDb(employeeId, updated)
-
       return { ...prev, [employeeId]: updated }
     })
   }
@@ -309,12 +339,12 @@ export function EmployeeEvaluationSection({
     return count
   }
 
-  // 個別評価の評価者を変更
+  // 個別評価の評価者を変更（ローカル状態のみ更新、保存はボタンで）
   const handleIndividualEvaluatorChange = (employeeId: string, evaluatorId: string | null) => {
     setIndividualEvaluators((prev) => ({ ...prev, [employeeId]: evaluatorId }))
   }
 
-  // 個別評価の評価者を一括変更
+  // 個別評価の評価者を一括変更（ローカル状態のみ更新）
   const handleBulkIndividualEvaluatorChange = (evaluatorId: string | null) => {
     if (filteredEmployees.length === 0) return
     const newEvaluators: Record<string, string | null> = {}
@@ -327,6 +357,91 @@ export function EmployeeEvaluationSection({
       }
     })
     setIndividualEvaluators((prev) => ({ ...prev, ...newEvaluators }))
+  }
+
+  // 360度評価の評価者に変更があるか確認
+  const hasUnsaved360Evaluators = useMemo(() => {
+    if (evaluationType !== "360") return false
+    return Object.keys(evaluators).some((empId) => {
+      const current = evaluators[empId] || []
+      const initial = initialEvaluators[empId] || []
+      return JSON.stringify(current) !== JSON.stringify(initial)
+    })
+  }, [evaluators, initialEvaluators, evaluationType])
+
+  // 個別評価の評価者に変更があるか確認
+  const hasUnsavedIndividualEvaluators = useMemo(() => {
+    if (evaluationType !== "individual") return false
+    return Object.keys(individualEvaluators).some(
+      (empId) => individualEvaluators[empId] !== initialIndividualEvaluators[empId]
+    )
+  }, [individualEvaluators, initialIndividualEvaluators, evaluationType])
+
+  // 360度評価の評価者を一括保存
+  const handleSave360Evaluators = async () => {
+    setIsSaving360Evaluators(true)
+    try {
+      // 変更があった評価者のみ保存
+      const changedEntries = Object.entries(evaluators).filter(([empId, evIds]) => {
+        const initial = initialEvaluators[empId] || []
+        return JSON.stringify(evIds) !== JSON.stringify(initial)
+      })
+
+      if (changedEntries.length === 0) {
+        alert("変更がありません")
+        return
+      }
+
+      await Promise.all(
+        changedEntries.map(([empId, evIds]) => saveEvaluatorsToDb(empId, evIds))
+      )
+
+      // 保存成功後、初期値を更新
+      setInitialEvaluators(JSON.parse(JSON.stringify(evaluators)))
+
+      // 従業員データを再取得
+      queryClient.invalidateQueries({ queryKey: ["employees", companyId] })
+
+      alert("評価者を保存しました")
+    } catch (error) {
+      console.error("評価者保存エラー:", error)
+      alert("評価者の保存に失敗しました")
+    } finally {
+      setIsSaving360Evaluators(false)
+    }
+  }
+
+  // 個別評価の評価者を一括保存
+  const handleSaveIndividualEvaluators = async () => {
+    setIsSavingIndividualEvaluators(true)
+    try {
+      // 変更があった評価者のみ保存
+      const changedEntries = Object.entries(individualEvaluators).filter(
+        ([empId, evId]) => evId !== initialIndividualEvaluators[empId]
+      )
+
+      if (changedEntries.length === 0) {
+        alert("変更がありません")
+        return
+      }
+
+      await Promise.all(
+        changedEntries.map(([empId, evId]) => saveIndividualEvaluatorToDb(empId, evId))
+      )
+
+      // 保存成功後、初期値を更新
+      setInitialIndividualEvaluators({ ...individualEvaluators })
+
+      // 従業員データを再取得
+      queryClient.invalidateQueries({ queryKey: ["employees", companyId] })
+
+      alert("評価者を保存しました")
+    } catch (error) {
+      console.error("評価者保存エラー:", error)
+      alert("評価者の保存に失敗しました")
+    } finally {
+      setIsSavingIndividualEvaluators(false)
+    }
   }
 
   // 評価タイプに応じて従業員をフィルタリング
@@ -404,6 +519,36 @@ export function EmployeeEvaluationSection({
                 : "複数評価者による多面評価を行います"}
             </CardDescription>
           </div>
+          {evaluationType === "360" && (
+            <Button
+              onClick={handleSave360Evaluators}
+              disabled={!hasUnsaved360Evaluators || isSaving360Evaluators}
+              variant={hasUnsaved360Evaluators ? "default" : "outline"}
+              className={hasUnsaved360Evaluators ? "bg-blue-600 hover:bg-blue-700" : ""}
+            >
+              {isSaving360Evaluators ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              {isSaving360Evaluators ? "保存中..." : hasUnsaved360Evaluators ? "評価者を保存" : "変更なし"}
+            </Button>
+          )}
+          {evaluationType === "individual" && (
+            <Button
+              onClick={handleSaveIndividualEvaluators}
+              disabled={!hasUnsavedIndividualEvaluators || isSavingIndividualEvaluators}
+              variant={hasUnsavedIndividualEvaluators ? "default" : "outline"}
+              className={hasUnsavedIndividualEvaluators ? "bg-blue-600 hover:bg-blue-700" : ""}
+            >
+              {isSavingIndividualEvaluators ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              {isSavingIndividualEvaluators ? "保存中..." : hasUnsavedIndividualEvaluators ? "評価者を保存" : "変更なし"}
+            </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent>

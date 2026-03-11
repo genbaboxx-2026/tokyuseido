@@ -84,7 +84,7 @@ export async function GET(
       ],
     })
 
-    return NextResponse.json(employees)
+    return NextResponse.json({ employees })
   } catch (error) {
     console.error("企業従業員一覧取得エラー:", error)
     return NextResponse.json(

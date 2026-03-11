@@ -1,11 +1,19 @@
 "use client"
 
-import { useMemo, useState, useCallback } from "react"
+import { useMemo, useState, useCallback, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Loader2, RotateCcw, ChevronLeft, ChevronRight, ArrowUpDown } from "lucide-react"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Loader2, RotateCcw, ChevronLeft, ChevronRight, ArrowUpDown, Calculator, Save } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { SalaryTableCalculationResult } from "@/lib/salary-table/generator"
 import { getRankLettersInRange } from "@/lib/salary-table/generator"
@@ -14,6 +22,14 @@ interface Grade {
   id: string
   name: string
   level: number
+}
+
+interface Employee {
+  id: string
+  firstName: string
+  lastName: string
+  gradeId: string | null
+  baseSalary: number | null
 }
 
 interface AdjustmentRule {
@@ -28,6 +44,7 @@ interface SalaryAdjustmentCriteriaProps {
   salaryTableId: string
   calculationResult: SalaryTableCalculationResult
   grades: Grade[]
+  employees?: Employee[]
   rankStartLetter?: string
   rankEndLetter?: string
   onGradeBandChange?: (gradeId: string, startBand: number) => void
@@ -57,6 +74,7 @@ export function SalaryAdjustmentCriteria({
   salaryTableId,
   calculationResult,
   grades,
+  employees = [],
   rankStartLetter = "S",
   rankEndLetter = "D",
   onGradeBandChange,
@@ -64,6 +82,7 @@ export function SalaryAdjustmentCriteria({
   const queryClient = useQueryClient()
   const totalBands = calculationResult.bands.length
   const bandsPerGrade = calculationResult.bandsPerGrade
+  const stepsPerBand = calculationResult.stepsPerBand
 
   const [editingCell, setEditingCell] = useState<string | null>(null)
   const [editValue, setEditValue] = useState<string>("")
@@ -71,8 +90,17 @@ export function SalaryAdjustmentCriteria({
   // 昇順/降順の切り替え（true=降順: 大きい号俸帯が上）
   const [isDescending, setIsDescending] = useState(true)
 
+  // ローカル編集中のルール（保存前の変更を保持）
+  const [localRules, setLocalRules] = useState<AdjustmentRule[]>([])
+  const [hasLocalChanges, setHasLocalChanges] = useState(false)
+
   // 等級別の開始号俸帯オーバーライド（ローカルstate）
   const [gradeBandOverrides, setGradeBandOverrides] = useState<Map<string, number>>(new Map())
+
+  // シミュレーション用state
+  const [simulationYears, setSimulationYears] = useState<number>(5)
+  const [simulationRating, setSimulationRating] = useState<string>("B")
+  const [selectedEmployeeForDetail, setSelectedEmployeeForDetail] = useState<string | null>(null)
 
   // ランク文字リストを取得
   const rankLetters = useMemo(() => {
@@ -93,7 +121,6 @@ export function SalaryAdjustmentCriteria({
   }, [totalBands])
 
   // 改定マトリクスの行リスト（号俸番号を含む）
-  const stepsPerBand = calculationResult.stepsPerBand
   const matrixRows = useMemo(() => {
     const result: Array<{ band: number; isTransition: boolean; label: string; stepRange: string }> = []
     for (const band of bandNumbers) {
@@ -178,7 +205,7 @@ export function SalaryAdjustmentCriteria({
   }, [getGradeStartBand, bandsPerGrade, totalBands, onGradeBandChange])
 
   // 改定ルールを取得
-  const { data: rules = [], isLoading: isLoadingRules } = useQuery<AdjustmentRule[]>({
+  const { data: serverRules = [], isLoading: isLoadingRules } = useQuery<AdjustmentRule[]>({
     queryKey: ["adjustmentRules", salaryTableId],
     queryFn: async () => {
       const res = await fetch(`/api/salary-tables/${salaryTableId}/adjustment-rules`)
@@ -187,15 +214,37 @@ export function SalaryAdjustmentCriteria({
     },
   })
 
-  // ルールをマップに変換
+  // サーバーからのルールをローカルステートに同期（ローカル変更がない場合のみ）
+  const serverRulesJson = JSON.stringify(serverRules)
+  useEffect(() => {
+    if (!hasLocalChanges) {
+      setLocalRules(serverRules)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverRulesJson])
+
+  // ページ離脱時の警告
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasLocalChanges) {
+        e.preventDefault()
+        e.returnValue = ""
+      }
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload)
+  }, [hasLocalChanges])
+
+  // ルールをマップに変換（ローカルルールを使用）
   const rulesMap = useMemo(() => {
     const map = new Map<string, number>()
-    for (const rule of rules) {
+    for (const rule of localRules) {
       const key = `${rule.currentBand}-${rule.isTransition}-${rule.targetBand}`
       map.set(key, rule.adjustmentValue)
     }
     return map
-  }, [rules])
+  }, [localRules])
 
   // ルール更新Mutation
   const updateRulesMutation = useMutation({
@@ -208,8 +257,9 @@ export function SalaryAdjustmentCriteria({
       if (!res.ok) throw new Error("改定ルールの保存に失敗しました")
       return res.json()
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["adjustmentRules", salaryTableId] })
+    onSuccess: async () => {
+      setHasLocalChanges(false)
+      await queryClient.invalidateQueries({ queryKey: ["adjustmentRules", salaryTableId] })
     },
   })
 
@@ -222,10 +272,17 @@ export function SalaryAdjustmentCriteria({
       if (!res.ok) throw new Error("改定ルールのリセットに失敗しました")
       return res.json()
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["adjustmentRules", salaryTableId] })
+    onSuccess: async () => {
+      setHasLocalChanges(false)
+      setLocalRules([])
+      await queryClient.invalidateQueries({ queryKey: ["adjustmentRules", salaryTableId] })
     },
   })
+
+  // 保存処理
+  const handleSave = useCallback(() => {
+    updateRulesMutation.mutate(localRules)
+  }, [localRules, updateRulesMutation])
 
   // 値を取得
   const getValue = useCallback((currentBand: number, isTransition: boolean, targetBand: number) => {
@@ -236,6 +293,209 @@ export function SalaryAdjustmentCriteria({
     return calculateDefaultValue(currentBand, isTransition, targetBand)
   }, [rulesMap])
 
+  // 評価ランク（S〜D等）から目標号俸帯を取得（従業員の等級のマッピングに基づく）
+  const getTargetBandFromRating = useCallback((gradeId: string, rating: string) => {
+    const bandMapping = getGradeBandMapping(gradeId)
+    // マッピングからランク文字に対応する号俸帯を検索
+    for (const [bandNum, rankLetter] of bandMapping.entries()) {
+      if (rankLetter === rating) {
+        return bandNum
+      }
+    }
+    // 見つからない場合はデフォルトとして中央の号俸帯を返す
+    const startBand = getGradeStartBand(gradeId)
+    return startBand + Math.floor(rankLetters.length / 2)
+  }, [getGradeBandMapping, getGradeStartBand, rankLetters])
+
+  // 号俸から号俸帯番号とT行かどうかを取得
+  const getStepBandInfo = useCallback((stepNumber: number) => {
+    const bandNumber = Math.ceil(stepNumber / stepsPerBand)
+    const positionInBand = ((stepNumber - 1) % stepsPerBand) + 1
+    const isTransition = positionInBand === stepsPerBand
+    return { bandNumber, isTransition, positionInBand }
+  }, [stepsPerBand])
+
+  // 号俸番号から基本給を取得
+  const getSalaryForStep = useCallback((stepNumber: number) => {
+    const step = calculationResult.salaryLadder.find(s => s.stepNumber === stepNumber)
+    return step?.baseSalary ?? 0
+  }, [calculationResult.salaryLadder])
+
+  // 号俸が指定した等級の範囲内かどうかを判定
+  const isStepInGradeRange = useCallback((stepNumber: number, gradeId: string): boolean => {
+    const assignment = calculationResult.gradeBandAssignments.find(a => a.gradeId === gradeId)
+    if (!assignment) return false
+    return stepNumber >= assignment.startStep && stepNumber <= assignment.endStep
+  }, [calculationResult.gradeBandAssignments])
+
+  // 号俸から該当する等級を取得（現在の等級を優先、範囲外の場合は適切な等級を返す）
+  const getGradeForStep = useCallback((stepNumber: number, currentGradeId?: string): Grade | null => {
+    // 現在の等級が指定されていて、その範囲内にある場合は現在の等級を維持
+    if (currentGradeId && isStepInGradeRange(stepNumber, currentGradeId)) {
+      return grades.find(g => g.id === currentGradeId) || null
+    }
+
+    // 範囲外の場合は、該当する等級の中で最も適切なものを返す
+    const matchingAssignments = calculationResult.gradeBandAssignments
+      .filter(assignment => stepNumber >= assignment.startStep && stepNumber <= assignment.endStep)
+    
+    if (matchingAssignments.length === 0) return null
+
+    // 現在の等級より上の等級を優先（昇格シミュレーション）
+    if (currentGradeId) {
+      const currentGrade = grades.find(g => g.id === currentGradeId)
+      if (currentGrade) {
+        const higherGrades = matchingAssignments
+          .map(a => grades.find(g => g.id === a.gradeId))
+          .filter((g): g is Grade => g !== undefined && g.level > currentGrade.level)
+          .sort((a, b) => a.level - b.level) // 最も近い上位等級
+        
+        if (higherGrades.length > 0) return higherGrades[0]
+      }
+    }
+
+    // デフォルトは最も高い等級
+    const matchingGrades = matchingAssignments
+      .map(assignment => grades.find(g => g.id === assignment.gradeId))
+      .filter((g): g is Grade => g !== undefined)
+      .sort((a, b) => b.level - a.level)
+    
+    return matchingGrades[0] || null
+  }, [calculationResult.gradeBandAssignments, grades, isStepInGradeRange])
+
+  // 等級のS1号俸帯（開始号俸帯）に達しているかを判定し、次の等級を取得
+  const getNextHigherGrade = useCallback((gradeId: string): Grade | null => {
+    const currentGrade = grades.find(g => g.id === gradeId)
+    if (!currentGrade) return null
+    
+    // 現在の等級より上位の等級を検索（levelが高い方が上位）
+    const higherGrades = grades
+      .filter(g => g.level > currentGrade.level)
+      .sort((a, b) => a.level - b.level) // 最も近い上位等級
+    
+    return higherGrades[0] || null
+  }, [grades])
+
+  // 現在の号俸が等級のS1（最上位の号俸帯、つまり開始号俸帯）に達しているかを判定
+  const isAtGradeS1Band = useCallback((stepNumber: number, gradeId: string): boolean => {
+    const { bandNumber } = getStepBandInfo(stepNumber)
+    const gradeStartBand = getGradeStartBand(gradeId)
+    return bandNumber === gradeStartBand
+  }, [getStepBandInfo, getGradeStartBand])
+
+  // 単一従業員のシミュレーションを計算する関数
+  const calculateEmployeeSimulation = useCallback((employee: Employee) => {
+    if (!employee.baseSalary || !employee.gradeId) return null
+
+    const employeeGrade = grades.find(g => g.id === employee.gradeId)
+    if (!employeeGrade) return null
+
+    // 現在の号俸を検索（現基本給以上で最も近い号俸）
+    const currentStep = calculationResult.salaryLadder
+      .filter(s => s.baseSalary >= employee.baseSalary!)
+      .sort((a, b) => a.baseSalary - b.baseSalary)[0]
+
+    if (!currentStep) return null
+
+    const currentStepNumber = currentStep.stepNumber
+    const currentSalary = currentStep.baseSalary
+
+    // シミュレーション：年数分の評価を適用
+    let simulatedStep = currentStepNumber
+    let currentGradeId = employee.gradeId!
+    const yearlyDetails: { year: number; currentStep: number; stepChange: number; newStep: number; gradeName: string; promoted: boolean }[] = []
+
+    for (let year = 1; year <= simulationYears; year++) {
+      let promoted = false
+      let stepChange: number
+      let actualGradeId = currentGradeId
+      
+      // まず現在の等級で評価を計算
+      const { bandNumber, isTransition } = getStepBandInfo(simulatedStep)
+      const targetBand = getTargetBandFromRating(currentGradeId, simulationRating)
+      stepChange = getValue(bandNumber, isTransition, targetBand)
+      
+      // S評価なのに変化が0以下の場合は昇格して再計算
+      if (simulationRating === "S" && stepChange <= 0) {
+        const nextGrade = getNextHigherGrade(currentGradeId)
+        if (nextGrade) {
+          actualGradeId = nextGrade.id
+          currentGradeId = nextGrade.id
+          promoted = true
+          // 昇格後の等級でS評価を再計算
+          const newTargetBand = getTargetBandFromRating(actualGradeId, simulationRating)
+          stepChange = getValue(bandNumber, isTransition, newTargetBand)
+        }
+      }
+      
+      // マイナスの昇給もそのまま適用（降給あり）
+      
+      const newStep = Math.max(1, Math.min(calculationResult.totalSteps, simulatedStep + stepChange))
+      const gradeName = grades.find(g => g.id === actualGradeId)?.name || ""
+      
+      yearlyDetails.push({
+        year,
+        currentStep: simulatedStep,
+        stepChange,
+        newStep,
+        gradeName,
+        promoted,
+      })
+      
+      simulatedStep = newStep
+    }
+
+    const finalStep = simulatedStep
+    const finalSalary = getSalaryForStep(finalStep)
+    const totalStepChange = finalStep - currentStepNumber
+    const salaryChange = finalSalary - currentSalary
+    const finalGrade = grades.find(g => g.id === currentGradeId)
+
+    return {
+      employee,
+      currentGrade: employeeGrade,
+      currentStep: currentStepNumber,
+      currentSalary,
+      finalGrade: finalGrade || employeeGrade,
+      finalStep,
+      yearlyDetails,
+      finalSalary,
+      totalStepChange,
+      salaryChange,
+    }
+  }, [grades, calculationResult, simulationYears, simulationRating, getValue, getStepBandInfo, getTargetBandFromRating, getSalaryForStep, isAtGradeS1Band, getNextHigherGrade])
+
+  // 全従業員のシミュレーション結果
+  const allEmployeeSimulations = useMemo(() => {
+    return employees
+      .filter(emp => emp.baseSalary && emp.gradeId)
+      .map(emp => calculateEmployeeSimulation(emp))
+      .filter((result): result is NonNullable<typeof result> => result !== null)
+      .sort((a, b) => b.currentGrade.level - a.currentGrade.level || a.employee.lastName.localeCompare(b.employee.lastName))
+  }, [employees, calculateEmployeeSimulation])
+
+  // 統計情報
+  const statistics = useMemo(() => {
+    if (allEmployeeSimulations.length === 0) return null
+
+    const totalCurrentSalary = allEmployeeSimulations.reduce((sum, s) => sum + s.currentSalary, 0)
+    const totalFinalSalary = allEmployeeSimulations.reduce((sum, s) => sum + s.finalSalary, 0)
+    const avgCurrentSalary = totalCurrentSalary / allEmployeeSimulations.length
+    const avgFinalSalary = totalFinalSalary / allEmployeeSimulations.length
+    const avgSalaryChange = avgFinalSalary - avgCurrentSalary
+    const totalSalaryChange = totalFinalSalary - totalCurrentSalary
+
+    return {
+      count: allEmployeeSimulations.length,
+      avgCurrentSalary: Math.round(avgCurrentSalary),
+      avgFinalSalary: Math.round(avgFinalSalary),
+      avgSalaryChange: Math.round(avgSalaryChange),
+      totalCurrentSalary,
+      totalFinalSalary,
+      totalSalaryChange,
+    }
+  }, [allEmployeeSimulations])
+
   // セルの編集開始
   const handleCellClick = (currentBand: number, isTransition: boolean, targetBand: number) => {
     const key = `${currentBand}-${isTransition}-${targetBand}`
@@ -244,7 +504,7 @@ export function SalaryAdjustmentCriteria({
     setEditValue(currentValue.toString())
   }
 
-  // 編集値の確定
+  // 編集値の確定（ローカルステートを更新、サーバーには保存しない）
   const handleEditConfirm = (currentBand: number, isTransition: boolean, targetBand: number) => {
     const newValue = parseInt(editValue)
     if (isNaN(newValue)) {
@@ -253,7 +513,7 @@ export function SalaryAdjustmentCriteria({
     }
 
     const defaultValue = calculateDefaultValue(currentBand, isTransition, targetBand)
-    const newRules = rules.filter(
+    const newRules = localRules.filter(
       r => !(r.currentBand === currentBand && r.isTransition === isTransition && r.targetBand === targetBand)
     )
 
@@ -261,7 +521,8 @@ export function SalaryAdjustmentCriteria({
       newRules.push({ currentBand, isTransition, targetBand, adjustmentValue: newValue })
     }
 
-    updateRulesMutation.mutate(newRules)
+    setLocalRules(newRules)
+    setHasLocalChanges(true)
     setEditingCell(null)
   }
 
@@ -280,15 +541,239 @@ export function SalaryAdjustmentCriteria({
   }
 
   const isLoading = isLoadingRules || updateRulesMutation.isPending || deleteRulesMutation.isPending
+  const isSaving = updateRulesMutation.isPending
 
   // 列幅を固定（大きめに設定）
   const firstColWidth = "w-[140px] min-w-[140px]"
   const bandColWidth = "w-[56px] min-w-[56px]"
 
+  // 評価ランクのオプションをランク文字リストから生成
+  const ratingOptions = useMemo(() => {
+    return rankLetters.map((letter, index) => {
+      let suffix = ""
+      if (index === 0) suffix = " (最高評価)"
+      else if (index === rankLetters.length - 1) suffix = " (最低評価)"
+      else if (index === Math.floor(rankLetters.length / 2)) suffix = " (標準)"
+      return { value: letter, label: `${letter}${suffix}` }
+    })
+  }, [rankLetters])
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat("ja-JP").format(value)
+  }
+
   return (
-    <Card>
-      <CardHeader className="py-3 flex flex-row items-center justify-between">
-        <CardTitle className="text-base">等級別号俸改定基準</CardTitle>
+    <div className="space-y-4">
+      {/* シミュレーションカード */}
+      <Card>
+        <CardHeader className="py-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Calculator className="h-4 w-4" />
+            全従業員 給与シミュレーション
+          </CardTitle>
+          <CardDescription>
+            評価ランクと年数を指定して、全従業員の将来の給与をシミュレーションします
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {/* 条件設定 */}
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="space-y-1">
+                <Label className="text-xs">評価ランク</Label>
+                <Select value={simulationRating} onValueChange={setSimulationRating}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ratingOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">シミュレーション年数</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={simulationYears}
+                    onChange={(e) => setSimulationYears(Math.max(1, Math.min(30, Number(e.target.value))))}
+                    className="w-20 h-9"
+                  />
+                  <span className="text-sm text-muted-foreground">年間</span>
+                </div>
+              </div>
+
+              {statistics && (
+                <div className="flex-1 flex flex-wrap gap-4 justify-end">
+                  <div className="bg-muted px-3 py-2 rounded-lg text-sm">
+                    <span className="text-muted-foreground">対象人数: </span>
+                    <span className="font-medium">{statistics.count}名</span>
+                  </div>
+                  <div className="bg-muted px-3 py-2 rounded-lg text-sm">
+                    <span className="text-muted-foreground">現在の平均基本給: </span>
+                    <span className="font-mono">¥{formatCurrency(statistics.avgCurrentSalary)}</span>
+                  </div>
+                  <div className="bg-primary/10 px-3 py-2 rounded-lg text-sm border border-primary/20">
+                    <span className="text-muted-foreground">{simulationYears}年後の平均基本給: </span>
+                    <span className="font-mono font-medium">¥{formatCurrency(statistics.avgFinalSalary)}</span>
+                    <span className={cn(
+                      "ml-2 font-mono",
+                      statistics.avgSalaryChange > 0 ? "text-emerald-600" : statistics.avgSalaryChange < 0 ? "text-red-600" : ""
+                    )}>
+                      ({statistics.avgSalaryChange > 0 ? "+" : ""}¥{formatCurrency(statistics.avgSalaryChange)})
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 従業員一覧テーブル */}
+            {allEmployeeSimulations.length > 0 ? (
+              <div className="overflow-auto max-h-[400px] border rounded-lg">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-muted">
+                    <tr className="border-b">
+                      <th className="text-left px-3 py-2 font-medium">従業員</th>
+                      <th className="text-center px-3 py-2 font-medium">現在等級</th>
+                      <th className="text-right px-3 py-2 font-medium">現在号俸</th>
+                      <th className="text-right px-3 py-2 font-medium">現在基本給</th>
+                      <th className="text-center px-3 py-2 font-medium">{simulationYears}年後等級</th>
+                      <th className="text-right px-3 py-2 font-medium">{simulationYears}年後号俸</th>
+                      <th className="text-right px-3 py-2 font-medium">{simulationYears}年後基本給</th>
+                      <th className="text-right px-3 py-2 font-medium">変化額</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allEmployeeSimulations.map((sim) => (
+                      <tr 
+                        key={sim.employee.id} 
+                        className={cn(
+                          "border-b hover:bg-muted/50 cursor-pointer",
+                          selectedEmployeeForDetail === sim.employee.id && "bg-primary/10"
+                        )}
+                        onClick={() => setSelectedEmployeeForDetail(
+                          selectedEmployeeForDetail === sim.employee.id ? null : sim.employee.id
+                        )}
+                      >
+                        <td className="px-3 py-2">
+                          {sim.employee.lastName} {sim.employee.firstName}
+                        </td>
+                        <td className="text-center px-3 py-2">{sim.currentGrade.name}</td>
+                        <td className="text-right px-3 py-2 font-mono">{sim.currentStep}</td>
+                        <td className="text-right px-3 py-2 font-mono">¥{formatCurrency(sim.currentSalary)}</td>
+                        <td className="text-center px-3 py-2">
+                          <span className={sim.finalGrade.id !== sim.currentGrade.id ? "text-primary font-medium" : ""}>
+                            {sim.finalGrade.name}
+                          </span>
+                        </td>
+                        <td className="text-right px-3 py-2 font-mono">{sim.finalStep}</td>
+                        <td className="text-right px-3 py-2 font-mono">¥{formatCurrency(sim.finalSalary)}</td>
+                        <td className={cn(
+                          "text-right px-3 py-2 font-mono",
+                          sim.salaryChange > 0 ? "text-emerald-600" : sim.salaryChange < 0 ? "text-red-600" : ""
+                        )}>
+                          {sim.salaryChange > 0 ? "+" : ""}¥{formatCurrency(sim.salaryChange)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {statistics && (
+                    <tfoot className="sticky bottom-0 bg-muted font-medium">
+                      <tr className="border-t-2">
+                        <td className="px-3 py-2">合計 / 平均</td>
+                        <td className="text-center px-3 py-2">-</td>
+                        <td className="text-right px-3 py-2">-</td>
+                        <td className="text-right px-3 py-2 font-mono">¥{formatCurrency(statistics.totalCurrentSalary)}</td>
+                        <td className="text-center px-3 py-2">-</td>
+                        <td className="text-right px-3 py-2">-</td>
+                        <td className="text-right px-3 py-2 font-mono">¥{formatCurrency(statistics.totalFinalSalary)}</td>
+                        <td className={cn(
+                          "text-right px-3 py-2 font-mono",
+                          statistics.totalSalaryChange > 0 ? "text-emerald-600" : statistics.totalSalaryChange < 0 ? "text-red-600" : ""
+                        )}>
+                          {statistics.totalSalaryChange > 0 ? "+" : ""}¥{formatCurrency(statistics.totalSalaryChange)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground bg-muted p-3 rounded-lg text-center">
+                シミュレーション対象の従業員がいません
+              </div>
+            )}
+
+            {/* 選択した従業員の年度別詳細 */}
+            {selectedEmployeeForDetail && (() => {
+              const selectedSim = allEmployeeSimulations.find(s => s.employee.id === selectedEmployeeForDetail)
+              if (!selectedSim || !selectedSim.yearlyDetails) return null
+              
+              return (
+                <div className="mt-4 p-4 border rounded-lg bg-muted/30">
+                  <div className="font-medium mb-3">
+                    {selectedSim.employee.lastName} {selectedSim.employee.firstName} の年度別推移
+                    （{selectedSim.currentGrade.name} 号俸{selectedSim.currentStep} → {selectedSim.finalGrade.name} 号俸{selectedSim.finalStep}）
+                  </div>
+                  <div className="overflow-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b bg-muted">
+                          <th className="px-2 py-1 text-left">年</th>
+                          <th className="px-2 py-1 text-center">号俸</th>
+                          <th className="px-2 py-1 text-center">等級</th>
+                          <th className="px-2 py-1 text-center">評価</th>
+                          <th className="px-2 py-1 text-center">変化</th>
+                          <th className="px-2 py-1 text-center">新号俸</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedSim.yearlyDetails.map((detail) => (
+                          <tr key={detail.year} className={cn("border-b", detail.promoted && "bg-primary/10")}>
+                            <td className="px-2 py-1">{detail.year}年目</td>
+                            <td className="px-2 py-1 text-center font-mono">{detail.currentStep}</td>
+                            <td className={cn("px-2 py-1 text-center", detail.promoted && "text-primary font-medium")}>
+                              {detail.gradeName}
+                              {detail.promoted && " ↑昇格"}
+                            </td>
+                            <td className="px-2 py-1 text-center">{simulationRating}</td>
+                            <td className={cn(
+                              "px-2 py-1 text-center font-mono",
+                              detail.stepChange > 0 ? "text-emerald-600" : detail.stepChange < 0 ? "text-red-600" : ""
+                            )}>
+                              {detail.stepChange > 0 ? "+" : ""}{detail.stepChange}
+                            </td>
+                            <td className="px-2 py-1 text-center font-mono">{detail.newStep}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 等級別号俸改定基準 */}
+      <Card>
+        <CardHeader className="py-3 flex flex-row items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            等級別号俸改定基準
+            {hasLocalChanges && (
+              <span className="text-xs font-normal text-amber-600 dark:text-amber-400">
+                (未保存の変更があります)
+              </span>
+            )}
+          </CardTitle>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -302,10 +787,27 @@ export function SalaryAdjustmentCriteria({
             variant="outline"
             size="sm"
             onClick={() => deleteRulesMutation.mutate()}
-            disabled={isLoading || rules.length === 0}
+            disabled={isLoading || localRules.length === 0}
           >
             <RotateCcw className="h-3 w-3 mr-1" />
             デフォルトに戻す
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={!hasLocalChanges || isSaving}
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                保存中...
+              </>
+            ) : (
+              <>
+                <Save className="h-3 w-3 mr-1" />
+                保存
+              </>
+            )}
           </Button>
         </div>
       </CardHeader>
@@ -500,5 +1002,6 @@ export function SalaryAdjustmentCriteria({
         </p>
       </CardContent>
     </Card>
+    </div>
   )
 }

@@ -256,6 +256,7 @@ export async function createEmployee(
       currentStep: data.currentStep || null,
       currentRank: data.currentRank || null,
       baseSalary: data.baseSalary || null,
+      status: data.status || "ACTIVE",
       has360Evaluation: true, // 360度評価は全員デフォルトでチェック
       hasIndividualEvaluation, // 個別評価は正1、正2、正3のみ
     },
@@ -333,6 +334,7 @@ export async function updateEmployee(
       currentStep: data.currentStep,
       currentRank: data.currentRank,
       baseSalary: data.baseSalary,
+      status: data.status,
     },
     include: {
       department: {

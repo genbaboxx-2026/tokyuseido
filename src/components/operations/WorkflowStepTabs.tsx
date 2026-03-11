@@ -12,12 +12,14 @@ interface WorkflowStepTabsProps {
   steps: WorkflowStep[]
   activeStep: string
   onStepChange: (value: string) => void
+  disabled?: boolean
 }
 
 export function WorkflowStepTabs({
   steps,
   activeStep,
   onStepChange,
+  disabled = false,
 }: WorkflowStepTabsProps) {
   const activeIndex = steps.findIndex((s) => s.value === activeStep)
 
@@ -29,12 +31,23 @@ export function WorkflowStepTabs({
         const isFirst = index === 0
         const isLast = index === steps.length - 1
 
+        // disabled時は、アクティブなステップ以外はクリック不可
+        const isClickable = !disabled || isActive
+
         return (
           <button
             key={step.value}
             type="button"
-            onClick={() => onStepChange(step.value)}
-            className="relative flex-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:z-10"
+            onClick={() => {
+              if (isClickable) {
+                onStepChange(step.value)
+              }
+            }}
+            disabled={!isClickable}
+            className={cn(
+              "relative flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:z-10",
+              isClickable ? "cursor-pointer" : "cursor-not-allowed opacity-70"
+            )}
             style={{ zIndex: steps.length - index }}
           >
             <svg

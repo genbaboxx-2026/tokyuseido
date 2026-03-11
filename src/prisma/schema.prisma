@@ -187,6 +187,7 @@ model JobType {
   id                            String                          @id @default(cuid())
   jobCategoryId                 String                          @map("job_category_id")
   name                          String
+  displayOrder                  Int                             @default(0) @map("display_order")
   createdAt                     DateTime                        @default(now()) @map("created_at")
   updatedAt                     DateTime                        @updatedAt @map("updated_at")
   employees                     Employee[]
@@ -290,12 +291,14 @@ model Employee {
   has360Evaluation                Boolean                          @default(false) @map("has_360_evaluation")
   hasIndividualEvaluation         Boolean                          @default(false) @map("has_individual_evaluation")
   evaluator360Ids                 String[]                         @default([]) @map("evaluator_360_ids")
+  individualEvaluatorId           String?                          @map("individual_evaluator_id")
   employee360EvaluationItems      Employee360EvaluationItem[]
   evaluationWeights               EmployeeEvaluationWeight[]
   employeeEvaluationsAsEmployee   EmployeeEvaluation[]             @relation("EmployeeEvaluationToEmployee")
   employeeEvaluationsAsEvaluator  EmployeeEvaluation[]             @relation("EmployeeEvaluationToEvaluator")
   gradeHistory            EmployeeGradeHistory[]
   employeeSalaries                EmployeeSalary[]
+  employeeCurrentSalaries         EmployeeCurrentSalary[]
   company                         Company                          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   department                      Department?                      @relation(fields: [departmentId], references: [id])
   grade                           Grade?                           @relation(fields: [gradeId], references: [id])
@@ -363,9 +366,10 @@ model SalaryTable {
   isActive              Boolean                @default(true) @map("is_active")
   createdAt             DateTime               @default(now()) @map("created_at")
   updatedAt             DateTime               @updatedAt @map("updated_at")
-  adjustmentRules       SalaryAdjustmentRule[]
-  entries               SalaryTableEntry[]
-  company               Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  adjustmentRules         SalaryAdjustmentRule[]
+  entries                 SalaryTableEntry[]
+  employeeCurrentSalaries EmployeeCurrentSalary[]
+  company                 Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
   @@map("salary_tables")
@@ -421,6 +425,24 @@ model EmployeeSalary {
   @@index([employeeId])
   @@index([salaryTableEntryId])
   @@map("employee_salaries")
+}
+
+// 号俸テーブル設計用の現基本給（従業員マスタのbaseSalaryとは独立）
+model EmployeeCurrentSalary {
+  id            String      @id @default(cuid())
+  employeeId    String      @map("employee_id")
+  salaryTableId String      @map("salary_table_id")
+  currentSalary Int         @map("current_salary") // 現在実際に支払っている基本給
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  employee    Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  salaryTable SalaryTable @relation(fields: [salaryTableId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, salaryTableId])
+  @@index([employeeId])
+  @@index([salaryTableId])
+  @@map("employee_current_salaries")
 }
 
 // ========================================
@@ -570,23 +592,28 @@ model EvaluationItem {
 // ========================================
 
 model EmployeeEvaluation {
-  id                   String                   @id @default(cuid())
-  employeeId           String                   @map("employee_id")
-  evaluationTemplateId String                   @map("evaluation_template_id")
-  evaluationPeriodId   String?                  @map("evaluation_period_id")
-  evaluationType       String                   @default("individual") @map("evaluation_type")
-  status               EvaluationStatus         @default(STARTED)
-  totalScore           Float?                   @map("total_score")
-  finalRating          EvaluationRating?        @map("final_rating")
-  evaluatorComment     String?                  @map("evaluator_comment")
-  selfComment          String?                  @map("self_comment")
-  createdAt            DateTime                 @default(now()) @map("created_at")
-  updatedAt            DateTime                 @updatedAt @map("updated_at")
-  evaluatorId          String?                  @map("evaluator_id")
+  id                   String                              @id @default(cuid())
+  employeeId           String                              @map("employee_id")
+  evaluationTemplateId String                              @map("evaluation_template_id")
+  evaluationPeriodId   String?                             @map("evaluation_period_id")
+  evaluationType       String                              @default("individual") @map("evaluation_type")
+  status               EvaluationStatus                    @default(STARTED)
+  totalScore           Float?                              @map("total_score")
+  finalRating          EvaluationRating?                   @map("final_rating")
+  evaluatorComment     String?                             @map("evaluator_comment")
+  selfComment          String?                             @map("self_comment")
+  createdAt            DateTime                            @default(now()) @map("created_at")
+  updatedAt            DateTime                            @updatedAt @map("updated_at")
+  evaluatorId          String?                             @map("evaluator_id")
+  responseDeadline     DateTime?                           @map("response_deadline")
+  distributedAt        DateTime?                           @map("distributed_at")
+  selfCompletedAt      DateTime?                           @map("self_completed_at")
+  evaluatorCompletedAt DateTime?                           @map("evaluator_completed_at")
   items                EmployeeEvaluationItem[]
-  employee             Employee                 @relation("EmployeeEvaluationToEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
-  evaluationTemplate   EvaluationTemplate       @relation(fields: [evaluationTemplateId], references: [id], onDelete: Cascade)
-  evaluator            Employee?                @relation("EmployeeEvaluationToEvaluator", fields: [evaluatorId], references: [id])
+  accessTokens         IndividualEvaluationAccessToken[]
+  employee             Employee                            @relation("EmployeeEvaluationToEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  evaluationTemplate   EvaluationTemplate                  @relation(fields: [evaluationTemplateId], references: [id], onDelete: Cascade)
+  evaluator            Employee?                           @relation("EmployeeEvaluationToEvaluator", fields: [evaluatorId], references: [id])
 
   @@index([employeeId])
   @@index([evaluationPeriodId])
@@ -924,6 +951,27 @@ model BonusSetting {
 
   @@index([companyId])
   @@map("bonus_settings")
+}
+
+// ========================================
+// 個別評価アクセストークン
+// ========================================
+
+model IndividualEvaluationAccessToken {
+  id                   String             @id @default(cuid())
+  token                String             @unique
+  employeeEvaluationId String             @map("employee_evaluation_id")
+  type                 String             // "self" | "evaluator"
+  password             String?            // 評価者用パスワード（ハッシュ化）
+  rawPassword          String?            @map("raw_password") // 評価者用パスワード（平文・管理画面表示用）
+  expiresAt            DateTime           @map("expires_at")
+  usedAt               DateTime?          @map("used_at")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  employeeEvaluation   EmployeeEvaluation @relation(fields: [employeeEvaluationId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([employeeEvaluationId])
+  @@map("individual_evaluation_access_tokens")
 }
 
 // ========================================

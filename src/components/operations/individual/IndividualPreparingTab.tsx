@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Minus,
   ExternalLink,
+  Send,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -39,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   type Phase,
   type EvaluationStatus,
@@ -63,6 +65,10 @@ const DeleteItemDialog = dynamic(
   () => import("./ItemFormDialog").then((mod) => mod.DeleteItemDialog),
   { ssr: false }
 )
+const DistributionConfirmModal = dynamic(
+  () => import("./DistributionConfirmModal").then((mod) => mod.DistributionConfirmModal),
+  { ssr: false }
+)
 
 interface IndividualPreparingTabProps {
   companyId: string
@@ -79,6 +85,7 @@ export function IndividualPreparingTab({
   const currentTabPhase: Phase = "preparing"
   const [selectedEvaluation, setSelectedEvaluation] = useState<Evaluation | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [distributionModalOpen, setDistributionModalOpen] = useState(false)
 
   // 項目編集用の状態
   const [editingItem, setEditingItem] = useState<EvaluationItem | null>(null)
@@ -233,10 +240,36 @@ export function IndividualPreparingTab({
     },
   })
 
+  // 項目一括保存
+  const handleSaveItems = async (items: Array<{ id?: string; name: string; maxScore: number }>) => {
+    if (!selectedEvaluation) throw new Error("評価が選択されていません")
+    const res = await fetch(
+      `/api/companies/${companyId}/operations/${periodId}/individual/${selectedEvaluation.id}/items/bulk`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      }
+    )
+    if (!res.ok) {
+      const error = await res.json()
+      throw new Error(error.error || "保存に失敗しました")
+    }
+    queryClient.invalidateQueries({
+      queryKey: ["individualEvaluations", companyId, periodId],
+    })
+    onStatusChange()
+  }
+
   // 未設定のSTARTED件数を計算
   const noItemCount = evaluations.filter(
     (e) => e.currentPhase === currentTabPhase && e.status === "STARTED" && e.itemStats.total === 0
   ).length
+
+  // 配布可能な評価（PREPARING状態で項目設定済み、評価者設定済み）
+  const distributableEvaluations = evaluations.filter(
+    (e) => e.currentPhase === currentTabPhase && e.status === "PREPARING" && e.itemStats.total > 0 && e.evaluatorId
+  )
 
   const handleRowClick = (evaluation: Evaluation) => {
     setSelectedEvaluation(evaluation)
@@ -289,6 +322,23 @@ export function IndividualPreparingTab({
     updateEvaluationMutation.mutate({
       evaluationId,
       data: { status },
+    })
+  }
+
+  // 全選択チェックボックス用
+  const activeEvaluations = evaluations.filter(e => e.currentPhase === currentTabPhase)
+  const allCompleted = activeEvaluations.length > 0 && activeEvaluations.every(e => e.status === "COMPLETED")
+  const someCompleted = activeEvaluations.some(e => e.status === "COMPLETED") && !allCompleted
+
+  const handleToggleAll = (checked: boolean) => {
+    const targetStatus: EvaluationStatus = checked ? "COMPLETED" : "STARTED"
+    activeEvaluations.forEach(evaluation => {
+      if ((checked && evaluation.status !== "COMPLETED") || (!checked && evaluation.status === "COMPLETED")) {
+        updateEvaluationMutation.mutate({
+          evaluationId: evaluation.id,
+          data: { status: targetStatus },
+        })
+      }
     })
   }
 
@@ -357,19 +407,42 @@ export function IndividualPreparingTab({
           <Copy className="h-4 w-4 mr-1" />
           一括前期コピー
         </Button>
+        <Button
+          size="sm"
+          className="bg-blue-600 hover:bg-blue-700 ml-auto"
+          onClick={() => setDistributionModalOpen(true)}
+          disabled={distributableEvaluations.length === 0}
+        >
+          <Send className="h-4 w-4 mr-1" />
+          配布
+          {distributableEvaluations.length > 0 && (
+            <Badge variant="secondary" className="ml-1 text-xs bg-blue-500">
+              {distributableEvaluations.length}
+            </Badge>
+          )}
+        </Button>
       </div>
 
       {/* 評価一覧 */}
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[120px]">従業員名</TableHead>
-            <TableHead className="w-[80px]">部署</TableHead>
+            <TableHead className="w-[140px]">従業員名</TableHead>
+            <TableHead className="w-[100px]">職種</TableHead>
             <TableHead className="w-[60px]">等級</TableHead>
-            <TableHead className="w-[80px]">職種</TableHead>
-            <TableHead className="w-[120px]">評価者</TableHead>
+            <TableHead className="w-[140px]">評価者</TableHead>
             <TableHead className="w-[60px]">変更</TableHead>
-            <TableHead className="w-[100px]">状態</TableHead>
+            <TableHead className="w-[60px] text-center">
+              <div className="flex items-center justify-center gap-1">
+                <Checkbox
+                  checked={allCompleted ? true : someCompleted ? "indeterminate" : false}
+                  onCheckedChange={handleToggleAll}
+                  disabled={updateEvaluationMutation.isPending || activeEvaluations.length === 0}
+                  className="data-[state=indeterminate]:bg-primary data-[state=indeterminate]:text-primary-foreground"
+                />
+                <span>完了</span>
+              </div>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -396,17 +469,14 @@ export function IndividualPreparingTab({
                   </div>
                 </TableCell>
                 <TableCell className="text-sm">
-                  {evaluation.employee.department?.name || "-"}
+                  {evaluation.employee.jobType?.name || "-"}
                 </TableCell>
                 <TableCell className="text-sm">
                   {evaluation.employee.grade?.name || "-"}
                 </TableCell>
-                <TableCell className="text-sm">
-                  {evaluation.employee.jobType?.name || "-"}
-                </TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <Select
-                    value={evaluation.evaluatorId || "none"}
+                    value={evaluation.evaluatorId || evaluation.employee.individualEvaluatorId || "none"}
                     onValueChange={(value) => handleEvaluatorChange(evaluation.id, value === "none" ? null : value)}
                     disabled={isCompleted || updateEvaluationMutation.isPending}
                   >
@@ -439,23 +509,14 @@ export function IndividualPreparingTab({
                     </Badge>
                   )}
                 </TableCell>
-                <TableCell onClick={(e) => e.stopPropagation()}>
-                  <Select
-                    value={evaluation.status}
-                    onValueChange={(value) => handleStatusChange(evaluation.id, value as EvaluationStatus)}
+                <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    checked={evaluation.status === "COMPLETED"}
+                    onCheckedChange={(checked) =>
+                      handleStatusChange(evaluation.id, checked ? "COMPLETED" : "STARTED")
+                    }
                     disabled={updateEvaluationMutation.isPending}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {statusOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  />
                 </TableCell>
               </TableRow>
             )
@@ -471,6 +532,8 @@ export function IndividualPreparingTab({
         onAddItem={handleAddItem}
         onEditItem={handleEditItem}
         onDeleteItem={handleDeleteItem}
+        onSaveItems={handleSaveItems}
+        companyId={companyId}
       />
 
       {/* 項目編集ダイアログ */}
@@ -490,6 +553,18 @@ export function IndividualPreparingTab({
         onOpenChange={() => setDeleteItemId(null)}
         onConfirm={confirmDeleteItem}
         isDeleting={deleteItemMutation.isPending}
+      />
+
+      {/* 配布確認モーダル */}
+      <DistributionConfirmModal
+        open={distributionModalOpen}
+        onOpenChange={setDistributionModalOpen}
+        companyId={companyId}
+        periodId={periodId}
+        evaluations={evaluations.filter(
+          (e) => e.currentPhase === currentTabPhase && e.status === "PREPARING"
+        )}
+        onSuccess={onStatusChange}
       />
     </div>
   )

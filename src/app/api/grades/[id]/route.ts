@@ -124,7 +124,7 @@ export async function DELETE(
 
     const { id } = await params
 
-    // 等級の存在確認
+    // 等級の存在確認（従業員数も含める）
     const existingGrade = await prisma.grade.findUnique({
       where: { id },
       include: {
@@ -143,13 +143,34 @@ export async function DELETE(
     // 従業員が紐付いている場合は削除不可
     if (existingGrade._count.employees > 0) {
       return NextResponse.json(
-        { error: "この等級には従業員が紐付いているため削除できません" },
+        { error: "この等級には従業員が紐づいているため削除できません" },
         { status: 400 }
       )
     }
 
-    await prisma.grade.delete({
-      where: { id },
+    // 評価データが存在するか確認（GradeJobTypeConfig経由のEvaluationTemplate）
+    const evaluationCount = await prisma.employeeEvaluation.count({
+      where: {
+        evaluationTemplate: {
+          gradeJobTypeConfig: {
+            gradeId: id,
+          },
+        },
+      },
+    })
+
+    if (evaluationCount > 0) {
+      return NextResponse.json(
+        { error: "この等級には評価データが存在するため削除できません" },
+        { status: 400 }
+      )
+    }
+
+    // トランザクションで削除（関連データはonDelete: Cascadeで自動削除）
+    await prisma.$transaction(async (tx) => {
+      await tx.grade.delete({
+        where: { id },
+      })
     })
 
     return NextResponse.json({ success: true })

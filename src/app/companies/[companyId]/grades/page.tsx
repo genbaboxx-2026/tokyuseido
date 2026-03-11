@@ -47,7 +47,7 @@ export default async function GradesPage({ params }: PageProps) {
       where: { companyId },
       include: {
         jobTypes: {
-          orderBy: { name: "asc" },
+          orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
         },
       },
       orderBy: { name: "asc" },
@@ -124,12 +124,9 @@ export default async function GradesPage({ params }: PageProps) {
   // 役割責任用データ（有効な組み合わせのみ）
   const enabledConfigs = configs.filter((c) => c.isEnabled);
   const roles = enabledConfigs.map((config) => ({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: config as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    role: config.gradeRole as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    employees: (employeeMap.get(`${config.gradeId}-${config.jobTypeId}`) || []) as any[],
+    config,
+    role: config.gradeRole,
+    employees: employeeMap.get(`${config.gradeId}-${config.jobTypeId}`) || [],
   }));
 
   const hasNoData =
@@ -158,11 +155,29 @@ export default async function GradesPage({ params }: PageProps) {
           </CardContent>
         </Card>
       ) : (
-        <Tabs defaultValue="roles" className="space-y-4">
+        <Tabs defaultValue="matrix" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="roles">役割責任</TabsTrigger>
             <TabsTrigger value="matrix">有効/無効設定</TabsTrigger>
+            <TabsTrigger value="roles">役割責任</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="matrix">
+            <Card>
+              <CardHeader>
+                <CardTitle>等級×職種マトリクス</CardTitle>
+                <CardDescription>
+                  チェックを入れた組み合わせが有効になります。有効な組み合わせのみ役割責任を設定できます。
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <GradeMatrix
+                  matrix={matrix}
+                  jobCategories={jobCategories}
+                  companyId={companyId}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           <TabsContent value="roles">
             <Card>
@@ -182,26 +197,8 @@ export default async function GradesPage({ params }: PageProps) {
                     </p>
                   </div>
                 ) : (
-                  <RoleMatrix roles={roles} companyId={companyId} />
+                  <RoleMatrix roles={roles} companyId={companyId} jobCategories={jobCategories} />
                 )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="matrix">
-            <Card>
-              <CardHeader>
-                <CardTitle>等級×職種マトリクス</CardTitle>
-                <CardDescription>
-                  チェックを入れた組み合わせが有効になります。有効な組み合わせのみ役割責任を設定できます。
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <GradeMatrix
-                  matrix={matrix}
-                  jobCategories={jobCategories}
-                  companyId={companyId}
-                />
               </CardContent>
             </Card>
           </TabsContent>

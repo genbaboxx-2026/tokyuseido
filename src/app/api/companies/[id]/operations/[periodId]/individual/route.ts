@@ -60,7 +60,12 @@ export async function GET(
       },
       include: {
         employee: {
-          include: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            individualEvaluatorId: true,
             grade: { select: { id: true, name: true } },
             jobType: { select: { id: true, name: true } },
             department: { select: { id: true, name: true } },
@@ -162,12 +167,16 @@ export async function GET(
         finalRating: evaluation.finalRating,
         evaluatorComment: evaluation.evaluatorComment,
         selfComment: evaluation.selfComment,
+        selfCompletedAt: evaluation.selfCompletedAt,
+        evaluatorCompletedAt: evaluation.evaluatorCompletedAt,
         createdAt: evaluation.createdAt,
         updatedAt: evaluation.updatedAt,
         employee: {
           id: evaluation.employee.id,
           firstName: evaluation.employee.firstName,
           lastName: evaluation.employee.lastName,
+          email: evaluation.employee.email,
+          individualEvaluatorId: evaluation.employee.individualEvaluatorId,
           grade: evaluation.employee.grade,
           jobType: evaluation.employee.jobType,
           department: evaluation.employee.department,
@@ -270,13 +279,14 @@ export async function POST(
       })
     }
 
-    // 従業員情報を取得（gradeId, jobTypeIdを含む）
+    // 従業員情報を取得（gradeId, jobTypeId, individualEvaluatorIdを含む）
     const employees = await prisma.employee.findMany({
       where: { id: { in: newEmployeeIds } },
       select: {
         id: true,
         gradeId: true,
         jobTypeId: true,
+        individualEvaluatorId: true,
       },
     })
 
@@ -313,6 +323,12 @@ export async function POST(
       })
     }
 
+    // 従業員IDから評価者IDへのマップを作成
+    const employeeEvaluatorMap = new Map<string, string | null>()
+    employees.forEach((emp) => {
+      employeeEvaluatorMap.set(emp.id, emp.individualEvaluatorId)
+    })
+
     // 新しいレコードを作成
     const createdRecords = await prisma.employeeEvaluation.createMany({
       data: employeesWithTemplate.map((employeeId) => ({
@@ -321,6 +337,8 @@ export async function POST(
         evaluationType: "individual",
         status: "STARTED" as const,
         evaluationTemplateId: employeeTemplateMap.get(employeeId)!,
+        // マスター設定の評価者をコピー
+        evaluatorId: employeeEvaluatorMap.get(employeeId) ?? null,
       })),
     })
 

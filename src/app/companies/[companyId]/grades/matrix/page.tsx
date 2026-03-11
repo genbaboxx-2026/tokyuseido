@@ -66,7 +66,7 @@ export default async function GradeMatrixPage({ params }: PageProps) {
     where: { companyId },
     include: {
       jobTypes: {
-        orderBy: { name: "asc" },
+        orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
       },
     },
     orderBy: { name: "asc" },

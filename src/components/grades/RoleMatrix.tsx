@@ -51,7 +51,7 @@ interface Config {
     id: string
     name: string
     level: number
-    employmentType: "FULL_TIME" | "CONTRACT" | "PART_TIME"
+    employmentType: "FULL_TIME" | "CONTRACT" | "PART_TIME" | "OUTSOURCE"
     isManagement: boolean
     [key: string]: unknown
   }
@@ -86,9 +86,19 @@ interface JobTypeGroup {
   }
 }
 
+interface JobCategory {
+  id: string
+  name: string
+  jobTypes: {
+    id: string
+    name: string
+  }[]
+}
+
 interface RoleMatrixProps {
   roles: RoleData[]
   companyId: string
+  jobCategories: JobCategory[]
 }
 
 interface RoleDataForModal {
@@ -105,11 +115,12 @@ interface RoleDataForModal {
 const ZOOM_LEVELS = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.25, 1.5, 1.75, 2.0]
 const DEFAULT_ZOOM_INDEX = 5
 
-export function RoleMatrix({ roles, companyId }: RoleMatrixProps) {
+export function RoleMatrix({ roles, companyId, jobCategories }: RoleMatrixProps) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedJobTypeId, setSelectedJobTypeId] = useState<string | null>(null)
+  const [selectedClickedJobTypeId, setSelectedClickedJobTypeId] = useState<string | null>(null)
   const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX)
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set())
 
@@ -194,21 +205,25 @@ export function RoleMatrix({ roles, companyId }: RoleMatrixProps) {
     [gradeMap]
   )
 
-  // 全ての職種を取得（重複排除）
+  // 全ての職種を取得（jobCategoriesの順序に従う = 有効/無効設定と同じ順序）
   const allJobTypes = useMemo(() => {
-    const jobTypeMap = new Map<string, { id: string; name: string; categoryName: string }>()
-    roles.forEach((roleData) => {
-      const jobType = roleData.config.jobType
-      if (!jobTypeMap.has(jobType.id)) {
-        jobTypeMap.set(jobType.id, {
-          id: jobType.id,
-          name: jobType.name,
-          categoryName: jobType.jobCategory.name,
-        })
-      }
+    const enabledJobTypeIds = new Set(roles.map((r) => r.config.jobType.id))
+    const result: { id: string; name: string; categoryName: string }[] = []
+
+    jobCategories.forEach((category) => {
+      category.jobTypes.forEach((jobType) => {
+        if (enabledJobTypeIds.has(jobType.id)) {
+          result.push({
+            id: jobType.id,
+            name: jobType.name,
+            categoryName: category.name,
+          })
+        }
+      })
     })
-    return Array.from(jobTypeMap.values())
-  }, [roles])
+
+    return result
+  }, [roles, jobCategories])
 
   // 等級×職種のマトリクスを作成
   const getCell = useCallback(
@@ -270,11 +285,14 @@ export function RoleMatrix({ roles, companyId }: RoleMatrixProps) {
   )
 
   const handleEditClick = useCallback((roleData: RoleData, group?: JobTypeGroup) => {
-    // グループの場合は最初の職種IDを使用
-    const jobTypeId = group
+    // クリックした職種IDを保持
+    const clickedJobTypeId = roleData.config.jobType.id
+    // グループの場合は代表として最初の職種IDを使用（役割責任データ取得用）
+    const representativeJobTypeId = group
       ? (group.jobTypeIds as string[])[0]
-      : roleData.config.jobType.id
-    setSelectedJobTypeId(jobTypeId)
+      : clickedJobTypeId
+    setSelectedJobTypeId(representativeJobTypeId)
+    setSelectedClickedJobTypeId(clickedJobTypeId)
     setModalOpen(true)
   }, [])
 
@@ -282,7 +300,7 @@ export function RoleMatrix({ roles, companyId }: RoleMatrixProps) {
   const selectedJobTypeRoles = useMemo((): RoleDataForModal[] => {
     if (!selectedJobTypeId) return []
 
-    // グループに属している場合、グループ内の全職種の従業員を集める
+    // グループに属している場合、グループ内の全職種のデータを取得（役割責任は共通）
     const group = groups.find((g) =>
       (g.jobTypeIds as string[]).includes(selectedJobTypeId)
     )
@@ -299,30 +317,34 @@ export function RoleMatrix({ roles, companyId }: RoleMatrixProps) {
         const gradeId = r.config.grade.id
         const existing = gradeDataMap.get(gradeId)
 
+        // クリックした職種の従業員のみを対象とする
+        const isClickedJobType = r.config.jobType.id === selectedClickedJobTypeId
+
         if (existing) {
-          // 同じ等級の従業員を追加
-          existing.employees = [...existing.employees, ...r.employees]
+          // 役割責任はグループ共通なのでマージ不要
+          // 従業員はクリックした職種のみ追加
+          if (isClickedJobType) {
+            existing.employees = [...existing.employees, ...r.employees]
+          }
         } else {
+          // クリックした職種名を取得（グループ化していても、クリックした職種のみ表示）
+          const clickedJobType = allJobTypes.find((jt) => jt.id === selectedClickedJobTypeId)
           gradeDataMap.set(gradeId, {
             configId: r.config.id,
             roleId: r.role?.id || null,
             gradeName: r.config.grade.name,
             gradeLevel: r.config.grade.level,
-            jobTypeName: group
-              ? allJobTypes
-                  .filter((jt) => targetJobTypeIds.includes(jt.id))
-                  .map((jt) => jt.name)
-                  .join("・")
-              : r.config.jobType.name,
+            jobTypeName: clickedJobType?.name || r.config.jobType.name,
             responsibilities: (r.role?.responsibilities as string[]) || [],
             positionNames: r.role?.positionNames || [],
-            employees: [...r.employees],
+            // クリックした職種の従業員のみを表示
+            employees: isClickedJobType ? [...r.employees] : [],
           })
         }
       })
 
     return Array.from(gradeDataMap.values()).sort((a, b) => b.gradeLevel - a.gradeLevel)
-  }, [selectedJobTypeId, roles, groups, allJobTypes])
+  }, [selectedJobTypeId, selectedClickedJobTypeId, roles, groups, allJobTypes])
 
   const handleSave = useCallback(() => {
     router.refresh()
@@ -605,13 +627,16 @@ export function RoleMatrix({ roles, companyId }: RoleMatrixProps) {
         open={modalOpen}
         onOpenChange={(open) => {
           setModalOpen(open)
-          if (!open) setSelectedJobTypeId(null)
+          if (!open) {
+            setSelectedJobTypeId(null)
+            setSelectedClickedJobTypeId(null)
+          }
         }}
         allRoles={selectedJobTypeRoles}
         jobTypeName={selectedJobTypeRoles[0]?.jobTypeName || ""}
         categoryName={
-          selectedJobTypeId
-            ? allJobTypes.find((jt) => jt.id === selectedJobTypeId)?.categoryName || ""
+          selectedClickedJobTypeId
+            ? allJobTypes.find((jt) => jt.id === selectedClickedJobTypeId)?.categoryName || ""
             : ""
         }
         onSave={handleSave}

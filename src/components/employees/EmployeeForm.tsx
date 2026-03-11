@@ -27,6 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   EmploymentTypeLabels,
   GenderLabels,
+  EmployeeStatusLabels,
 } from "@/types/employee";
 
 // バリデーションスキーマ
@@ -34,6 +35,7 @@ const employeeFormSchema = z.object({
   employeeCode: z.string().min(1, "社員番号は必須です"),
   lastName: z.string().min(1, "姓は必須です"),
   firstName: z.string().min(1, "名は必須です"),
+  email: z.string().email("有効なメールアドレスを入力してください").optional().or(z.literal("")),
   gender: z.string().optional(),
   birthDate: z.string().optional(),
   hireDate: z.string().min(1, "入社日は必須です"),
@@ -51,6 +53,7 @@ const employeeFormSchema = z.object({
     if (val === "" || val === undefined) return undefined;
     return typeof val === "string" ? parseInt(val, 10) : val;
   }),
+  status: z.string().optional(),
 });
 
 type EmployeeFormSchema = z.infer<typeof employeeFormSchema>;
@@ -60,6 +63,7 @@ interface EmployeeFormInput {
   employeeCode: string;
   lastName: string;
   firstName: string;
+  email?: string;
   gender?: string;
   birthDate?: string;
   hireDate: string;
@@ -71,6 +75,7 @@ interface EmployeeFormInput {
   currentStep?: string | number;
   currentRank?: string;
   baseSalary?: string | number;
+  status?: string;
 }
 
 interface SelectOption {
@@ -113,6 +118,7 @@ export function EmployeeForm({
       employeeCode: initialData?.employeeCode || "",
       lastName: initialData?.lastName || "",
       firstName: initialData?.firstName || "",
+      email: initialData?.email || "",
       gender: initialData?.gender || "",
       birthDate: initialData?.birthDate || "",
       hireDate: initialData?.hireDate || "",
@@ -124,6 +130,7 @@ export function EmployeeForm({
       currentStep: initialData?.currentStep ?? "",
       currentRank: initialData?.currentRank || "",
       baseSalary: initialData?.baseSalary ?? "",
+      status: initialData?.status || "ACTIVE",
     },
   });
 
@@ -165,6 +172,7 @@ export function EmployeeForm({
         body: JSON.stringify({
           ...data,
           companyId,
+          email: data.email || null,
           gender: data.gender || null,
           birthDate: data.birthDate || null,
           jobTypeId: data.jobTypeId || null,
@@ -173,6 +181,7 @@ export function EmployeeForm({
           currentStep: data.currentStep || null,
           currentRank: data.currentRank || null,
           baseSalary: data.baseSalary || null,
+          status: data.status || "ACTIVE",
         }),
       });
 
@@ -252,6 +261,24 @@ export function EmployeeForm({
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>メールアドレス</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="email"
+                      placeholder="taro.yamada@example.com"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}
@@ -438,6 +465,33 @@ export function EmployeeForm({
                           {pos.label}
                         </SelectItem>
                       ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="status"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>ステータス</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="選択してください" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {Object.entries(EmployeeStatusLabels).map(
+                        ([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        )
+                      )}
                     </SelectContent>
                   </Select>
                   <FormMessage />

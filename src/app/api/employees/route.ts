@@ -137,6 +137,7 @@ export async function POST(request: NextRequest) {
       employeeCode: body.employeeCode,
       firstName: body.firstName,
       lastName: body.lastName,
+      email: body.email || undefined,
       gender: body.gender || undefined,
       birthDate: body.birthDate || undefined,
       hireDate: body.hireDate,
@@ -148,6 +149,7 @@ export async function POST(request: NextRequest) {
       currentStep: body.currentStep || undefined,
       currentRank: body.currentRank || undefined,
       baseSalary: body.baseSalary || undefined,
+      status: body.status || "ACTIVE",
     };
 
     const employee = await createEmployee(data);

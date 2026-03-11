@@ -32,11 +32,12 @@ export async function GET(request: NextRequest, { params }: Params) {
       where: {
         jobCategory: { companyId },
       },
-      orderBy: { name: 'asc' },
+      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
       select: {
         id: true,
         name: true,
         jobCategoryId: true,
+        displayOrder: true,
         jobCategory: {
           select: { name: true },
         },
@@ -115,10 +116,18 @@ export async function POST(request: NextRequest, { params }: Params) {
       );
     }
 
+    // 同じカテゴリ内の最大displayOrderを取得
+    const maxOrderResult = await prisma.jobType.aggregate({
+      where: { jobCategoryId },
+      _max: { displayOrder: true },
+    });
+    const nextOrder = (maxOrderResult._max.displayOrder ?? -1) + 1;
+
     const jobType = await prisma.jobType.create({
       data: {
         jobCategoryId,
         name,
+        displayOrder: nextOrder,
       },
     });
 

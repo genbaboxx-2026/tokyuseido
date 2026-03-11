@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
 import { ClipboardCheck, Loader2, AlertCircle, UserPlus, Check } from "lucide-react"
 import {
@@ -26,7 +26,6 @@ import { Input } from "@/components/ui/input"
 import { WorkflowStepTabs } from "../WorkflowStepTabs"
 import { IndividualPreparingTab } from "./IndividualPreparingTab"
 import { IndividualDistributingTab } from "./IndividualDistributingTab"
-import { IndividualCollectedTab } from "./IndividualCollectedTab"
 import { IndividualAggregatedTab } from "./IndividualAggregatedTab"
 import { IndividualCompletedTab } from "./IndividualCompletedTab"
 
@@ -146,8 +145,22 @@ export function IndividualEvaluationSection({
 
   const completedCount = phaseCounts?.completed ?? 0
 
+  // 全員完了しているかどうか
+  const isAllCompleted = useMemo(() => {
+    return totalCount > 0 && completedCount === totalCount
+  }, [totalCount, completedCount])
+
   const handleTabChange = (value: string) => {
+    // 完了後はステップバーからの直接遷移を禁止
+    // （完了タブ内の「編集する」ボタンからのみ戻せる）
+    if (isAllCompleted && value !== "completed") {
+      return
+    }
     setActiveTab(value)
+  }
+
+  const handlePhaseChange = (phase: string) => {
+    setActiveTab(phase)
   }
 
   const refreshPhaseCounts = () => {
@@ -315,13 +328,13 @@ export function IndividualEvaluationSection({
           <WorkflowStepTabs
             steps={[
               { value: "preparing", label: "準備", count: phaseCounts?.preparing ?? 0 },
-              { value: "distributing", label: "配布", count: phaseCounts?.distributing ?? 0 },
-              { value: "collected", label: "回収", count: phaseCounts?.collected ?? 0 },
+              { value: "distributing", label: "配布・回収", count: (phaseCounts?.distributing ?? 0) + (phaseCounts?.collected ?? 0) },
               { value: "aggregated", label: "集計", count: phaseCounts?.aggregated ?? 0 },
               { value: "completed", label: "完了", count: phaseCounts?.completed ?? 0 },
             ]}
             activeStep={activeTab}
             onStepChange={handleTabChange}
+            disabled={isAllCompleted}
           />
 
           <TabsContent value="preparing" className="mt-4">
@@ -340,14 +353,6 @@ export function IndividualEvaluationSection({
             />
           </TabsContent>
 
-          <TabsContent value="collected" className="mt-4">
-            <IndividualCollectedTab
-              companyId={companyId}
-              periodId={periodId}
-              onStatusChange={refreshPhaseCounts}
-            />
-          </TabsContent>
-
           <TabsContent value="aggregated" className="mt-4">
             <IndividualAggregatedTab
               companyId={companyId}
@@ -360,6 +365,8 @@ export function IndividualEvaluationSection({
             <IndividualCompletedTab
               companyId={companyId}
               periodId={periodId}
+              onStatusChange={refreshPhaseCounts}
+              onPhaseChange={handlePhaseChange}
             />
           </TabsContent>
         </Tabs>

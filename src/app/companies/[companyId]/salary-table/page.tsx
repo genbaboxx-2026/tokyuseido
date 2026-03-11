@@ -1,7 +1,6 @@
 "use client"
 
 import { use, useState, useMemo, useCallback, useEffect } from "react"
-import { useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
@@ -17,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Table2, Users, Settings, AlertTriangle, Sliders } from "lucide-react"
+import { Table2, Settings, AlertTriangle, Sliders, Wallet } from "lucide-react"
 
 // 重いコンポーネントを遅延読み込み（タブ切り替え時に読み込まれる）
 const SalaryTableMatrix = dynamic(
@@ -42,6 +41,10 @@ const SalaryTableSpreadsheet = dynamic(
 )
 const SalaryAdjustmentCriteria = dynamic(
   () => import("@/components/salary-table").then((mod) => mod.SalaryAdjustmentCriteria),
+  { ssr: false, loading: () => <Skeleton className="h-64 w-full" /> }
+)
+const CurrentSalaryTab = dynamic(
+  () => import("@/components/salary-table").then((mod) => mod.CurrentSalaryTab),
   { ssr: false, loading: () => <Skeleton className="h-64 w-full" /> }
 )
 import {
@@ -162,10 +165,9 @@ function useDebounce<T>(value: T, delay: number): T {
 
 export default function SalaryTablePage({ params }: SalaryTablePageProps) {
   const { companyId } = use(params)
-  const router = useRouter()
   const queryClient = useQueryClient()
 
-  const [activeTab, setActiveTab] = useState<"settings" | "table" | "criteria">("settings")
+  const [activeTab, setActiveTab] = useState<"settings" | "table" | "criteria" | "current-salary">("settings")
   const [previewData, setPreviewData] = useState<PreviewResponse | null>(null)
   const [showPreviewDialog, setShowPreviewDialog] = useState(false)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
@@ -230,6 +232,39 @@ export default function SalaryTablePage({ params }: SalaryTablePageProps) {
   })
 
   const activeSalaryTable = salaryTables?.find((t) => t.isActive)
+
+  // 現基本給一覧取得
+  const { data: currentSalaries } = useQuery<{
+    employees: {
+      employeeId: string
+      currentSalary: number | null
+    }[]
+  }>({
+    queryKey: ["current-salaries", activeSalaryTable?.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/salary-tables/${activeSalaryTable!.id}/current-salaries`)
+      if (!res.ok) throw new Error("現基本給の取得に失敗しました")
+      return res.json()
+    },
+    enabled: !!activeSalaryTable?.id,
+  })
+
+  // 従業員データと現基本給をマージ（現基本給を優先）
+  const employeesWithCurrentSalary = useMemo(() => {
+    if (!currentSalaries?.employees) return employees
+
+    const currentSalaryMap = new Map(
+      currentSalaries.employees.map((e) => [e.employeeId, e.currentSalary])
+    )
+
+    return employees.map((emp) => {
+      const currentSalary = currentSalaryMap.get(emp.id)
+      return {
+        ...emp,
+        baseSalary: currentSalary ?? emp.baseSalary,
+      }
+    })
+  }, [employees, currentSalaries])
 
   useEffect(() => {
     if (activeSalaryTable) {
@@ -404,33 +439,17 @@ export default function SalaryTablePage({ params }: SalaryTablePageProps) {
               号俸テーブルのパラメータを設定し、自動生成します
             </p>
           </div>
-          <div className="flex gap-2">
-            {activeSalaryTable && (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={() => router.push(`/companies/${companyId}/salary-table/view`)}
-                >
-                  <Table2 className="mr-2 h-4 w-4" />
-                  {SALARY_TABLE_UI_TEXT.TABLE_VIEW_TITLE}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => router.push(`/companies/${companyId}/salary-table/employees`)}
-                >
-                  <Users className="mr-2 h-4 w-4" />
-                  {SALARY_TABLE_UI_TEXT.EMPLOYEE_MAPPING_TITLE}
-                </Button>
-              </>
-            )}
-          </div>
         </div>
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="mt-4">
           <TabsList>
+            <TabsTrigger value="current-salary" disabled={!activeSalaryTable}>
+              <Wallet className="mr-2 h-4 w-4" />
+              現基本給設定
+            </TabsTrigger>
             <TabsTrigger value="settings">
               <Settings className="mr-2 h-4 w-4" />
-              設定
+              詳細設定
             </TabsTrigger>
             <TabsTrigger value="table" disabled={!activeSalaryTable}>
               <Table2 className="mr-2 h-4 w-4" />
@@ -518,7 +537,7 @@ export default function SalaryTablePage({ params }: SalaryTablePageProps) {
                 <SalaryTableSpreadsheet
                   calculationResult={calculationResult}
                   grades={grades}
-                  employees={employees}
+                  employees={employeesWithCurrentSalary}
                 />
               </div>
             )}
@@ -538,9 +557,24 @@ export default function SalaryTablePage({ params }: SalaryTablePageProps) {
                 salaryTableId={activeSalaryTable.id}
                 calculationResult={calculationResult}
                 grades={grades}
+                employees={employeesWithCurrentSalary}
                 rankStartLetter={formValues.rankStartLetter}
                 rankEndLetter={formValues.rankEndLetter}
               />
+            )}
+          </div>
+        )}
+
+        {activeTab === "current-salary" && (
+          <div className="h-full container mx-auto overflow-y-auto py-2 pb-6">
+            {!activeSalaryTable ? (
+              <Card>
+                <CardContent className="py-12 text-center text-muted-foreground">
+                  号俸テーブルが設定されていません
+                </CardContent>
+              </Card>
+            ) : (
+              <CurrentSalaryTab salaryTableId={activeSalaryTable.id} />
             )}
           </div>
         )}

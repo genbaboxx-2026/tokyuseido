@@ -79,7 +79,7 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [profileImage, setProfileImage] = useState<string | null>(
-    (employee as unknown as { profileImage?: string | null }).profileImage || null
+    employee.profileImage || null
   );
   const [isUploading, setIsUploading] = useState(false);
   const [isInterviewModalOpen, setIsInterviewModalOpen] = useState(false);
@@ -90,10 +90,10 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
 
   // 評価有無
   const [has360Evaluation, setHas360Evaluation] = useState(
-    (employee as unknown as { has360Evaluation?: boolean }).has360Evaluation ?? false
+    employee.has360Evaluation ?? false
   );
   const [hasIndividualEvaluation, setHasIndividualEvaluation] = useState(
-    (employee as unknown as { hasIndividualEvaluation?: boolean }).hasIndividualEvaluation ?? false
+    employee.hasIndividualEvaluation ?? false
   );
   const [isEvaluationSaving, setIsEvaluationSaving] = useState(false);
 
@@ -150,7 +150,7 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
   const [form, setForm] = useState<FormData>({
     lastName: employee.lastName,
     firstName: employee.firstName,
-    email: (employee as unknown as { email?: string }).email || "",
+    email: employee.email || "",
     gender: employee.gender || "",
     birthDate: formatDateForInput(employee.birthDate),
     hireDate: formatDateForInput(employee.hireDate),
@@ -315,7 +315,7 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
     return `¥${salary.toLocaleString()}`;
   };
 
-  const employeeStatus = (employee as unknown as { status?: EmployeeStatus }).status || "ACTIVE";
+  const employeeStatus = employee.status;
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
