@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   Building2,
@@ -14,36 +13,28 @@ import {
   Home,
   ArrowLeft,
   FileDown,
-  ChevronDown,
-  ChevronRight,
   Play,
-  Layers,
 } from "lucide-react";
 
-// UIテキスト定数
 const UI_TEXT = {
   MENU: {
     DASHBOARD: "クライアント企業一覧",
-    ADD_NEW_COMPANY: "新しい企業を追加",
     BACK_TO_LIST: "企業一覧に戻る",
     OVERVIEW: "概要",
     COMPANY_SETTINGS: "会社設定",
     EMPLOYEES: "従業員管理",
-    GRADES: "等級制度",
+    GRADES: "等級制度設定",
     SALARY_TABLE: "号俸テーブル",
-    EVALUATIONS: "評価制度",
+    EVALUATIONS: "評価制度設定",
     REPORTS: "レポート出力",
-    OPERATIONS: "運用",
-    MASTER_SETTINGS: "マスタ設定",
-    GRADE_SALARY_EVALUATION: "等級・賃金・評価",
+    OPERATIONS: "評価実行",
   },
   SECTIONS: {
+    MASTER: "情報・マスタ",
     OPERATIONS: "運用",
-    MASTER_SETTINGS: "マスタ設定",
   },
 };
 
-// セクション区切りコンポーネント
 function SectionDivider({ label }: { label: string }) {
   return (
     <div className="px-3 py-2 mt-2">
@@ -54,7 +45,6 @@ function SectionDivider({ label }: { label: string }) {
   );
 }
 
-// ダッシュボード用ナビゲーション
 const DASHBOARD_NAV_ITEMS = [
   {
     href: "/dashboard",
@@ -70,25 +60,41 @@ interface NavItem {
   exact?: boolean;
 }
 
-interface CollapsibleNavItem {
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  children: NavItem[];
-}
-
-// 企業コンテキスト用ナビゲーション生成関数
 const getCompanyNavConfig = (companyId: string) => ({
+  master: [
+    {
+      href: `/companies/${companyId}/settings`,
+      label: UI_TEXT.MENU.COMPANY_SETTINGS,
+      icon: Settings,
+    },
+    {
+      href: `/companies/${companyId}/employees`,
+      label: UI_TEXT.MENU.EMPLOYEES,
+      icon: Users,
+    },
+    {
+      href: `/companies/${companyId}/grades`,
+      label: UI_TEXT.MENU.GRADES,
+      icon: Award,
+    },
+    {
+      href: `/companies/${companyId}/salary-table`,
+      label: UI_TEXT.MENU.SALARY_TABLE,
+      icon: Table,
+      exact: true,
+    },
+    {
+      href: `/companies/${companyId}/evaluations`,
+      label: UI_TEXT.MENU.EVALUATIONS,
+      icon: ClipboardList,
+    },
+  ] as NavItem[],
   operations: [
     {
       href: `/companies/${companyId}`,
       label: UI_TEXT.MENU.OVERVIEW,
       icon: Home,
       exact: true,
-    },
-    {
-      href: `/companies/${companyId}/employees`,
-      label: UI_TEXT.MENU.EMPLOYEES,
-      icon: Users,
     },
     {
       href: `/companies/${companyId}/operations`,
@@ -101,64 +107,22 @@ const getCompanyNavConfig = (companyId: string) => ({
       icon: FileDown,
     },
   ] as NavItem[],
-  masterSettings: {
-    collapsible: {
-      label: UI_TEXT.MENU.GRADE_SALARY_EVALUATION,
-      icon: Layers,
-      children: [
-        {
-          href: `/companies/${companyId}/grades`,
-          label: UI_TEXT.MENU.GRADES,
-          icon: Award,
-        },
-        {
-          href: `/companies/${companyId}/salary-table`,
-          label: UI_TEXT.MENU.SALARY_TABLE,
-          icon: Table,
-        },
-        {
-          href: `/companies/${companyId}/evaluations`,
-          label: UI_TEXT.MENU.EVALUATIONS,
-          icon: ClipboardList,
-        },
-      ] as NavItem[],
-    } as CollapsibleNavItem,
-    items: [
-      {
-        href: `/companies/${companyId}/settings`,
-        label: UI_TEXT.MENU.COMPANY_SETTINGS,
-        icon: Settings,
-      },
-    ] as NavItem[],
-  },
 });
 
-// companyIdをパスから抽出する関数
 function extractCompanyId(pathname: string): string | null {
   const match = pathname.match(/^\/companies\/([^/]+)/);
   return match ? match[1] : null;
 }
 
-// 企業コンテキスト内かどうかを判定する関数
 function isInCompanyContext(pathname: string): boolean {
-  // /companies/new は企業コンテキストではない
   if (pathname === "/companies/new") return false;
-  // /companies/[companyId] 以降のパスは企業コンテキスト
   return /^\/companies\/[^/]+/.test(pathname);
-}
-
-// 折りたたみメニューの子アイテムにマッチするか判定
-function isChildActive(children: NavItem[], pathname: string): boolean {
-  return children.some((child) =>
-    child.exact ? pathname === child.href : pathname.startsWith(child.href)
-  );
 }
 
 interface SidebarProps {
   companyName?: string;
 }
 
-// ナビゲーションアイテムコンポーネント
 function NavItemLink({ item, pathname }: { item: NavItem; pathname: string }) {
   const Icon = item.icon;
   const isActive = item.exact
@@ -181,53 +145,6 @@ function NavItemLink({ item, pathname }: { item: NavItem; pathname: string }) {
   );
 }
 
-// 折りたたみメニューコンポーネント
-function CollapsibleMenu({
-  item,
-  pathname,
-  defaultOpen = false,
-}: {
-  item: CollapsibleNavItem;
-  pathname: string;
-  defaultOpen?: boolean;
-}) {
-  const hasActiveChild = isChildActive(item.children, pathname);
-  const [isOpen, setIsOpen] = useState(defaultOpen || hasActiveChild);
-  const Icon = item.icon;
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className={cn(
-          "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-          hasActiveChild
-            ? "bg-sidebar-accent/30 text-sidebar-accent-foreground"
-            : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
-        )}
-      >
-        <div className="flex items-center gap-3">
-          <Icon className="h-4 w-4" />
-          {item.label}
-        </div>
-        {isOpen ? (
-          <ChevronDown className="h-4 w-4" />
-        ) : (
-          <ChevronRight className="h-4 w-4" />
-        )}
-      </button>
-      {isOpen && (
-        <div className="ml-4 mt-1 space-y-1 border-l pl-3">
-          {item.children.map((child) => (
-            <NavItemLink key={child.href} item={child} pathname={pathname} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function Sidebar({ companyName }: SidebarProps) {
   const pathname = usePathname();
   const inCompanyContext = isInCompanyContext(pathname);
@@ -238,7 +155,6 @@ export function Sidebar({ companyName }: SidebarProps) {
       <nav className="flex flex-col gap-1 p-4">
         {inCompanyContext && companyId ? (
           <>
-            {/* 企業一覧に戻るリンク */}
             <Link
               href="/dashboard"
               className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground transition-colors mb-2"
@@ -247,7 +163,6 @@ export function Sidebar({ companyName }: SidebarProps) {
               {UI_TEXT.MENU.BACK_TO_LIST}
             </Link>
 
-            {/* 企業名表示 */}
             {companyName && (
               <div className="px-3 py-2 mb-2 border-b">
                 <p className="text-xs text-muted-foreground">選択中の企業</p>
@@ -255,27 +170,17 @@ export function Sidebar({ companyName }: SidebarProps) {
               </div>
             )}
 
-            {/* 運用セクション */}
+            <SectionDivider label={UI_TEXT.SECTIONS.MASTER} />
+            {getCompanyNavConfig(companyId).master.map((item) => (
+              <NavItemLink key={item.href} item={item} pathname={pathname} />
+            ))}
+
             <SectionDivider label={UI_TEXT.SECTIONS.OPERATIONS} />
             {getCompanyNavConfig(companyId).operations.map((item) => (
               <NavItemLink key={item.href} item={item} pathname={pathname} />
             ))}
-
-            {/* マスタ設定セクション */}
-            <SectionDivider label={UI_TEXT.SECTIONS.MASTER_SETTINGS} />
-            {getCompanyNavConfig(companyId).masterSettings.items.map((item) => (
-              <NavItemLink key={item.href} item={item} pathname={pathname} />
-            ))}
-
-            {/* 等級・賃金・評価 折りたたみメニュー */}
-            <CollapsibleMenu
-              item={getCompanyNavConfig(companyId).masterSettings.collapsible}
-              pathname={pathname}
-              defaultOpen={true}
-            />
           </>
         ) : (
-          /* ダッシュボード用メニュー */
           DASHBOARD_NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive =

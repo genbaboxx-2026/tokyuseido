@@ -247,9 +247,9 @@ export async function createEmployee(
       email: data.email || null,
       gender: data.gender,
       birthDate: data.birthDate ? new Date(data.birthDate) : null,
-      hireDate: new Date(data.hireDate),
+      hireDate: data.hireDate ? new Date(data.hireDate) : new Date(),
       departmentId: data.departmentId || null,
-      employmentType: data.employmentType,
+      employmentType: data.employmentType || "FULL_TIME",
       jobTypeId: data.jobTypeId || null,
       gradeId: data.gradeId || null,
       positionId: data.positionId || null,
@@ -286,7 +286,7 @@ export async function createEmployee(
       data: {
         employeeId: employee.id,
         gradeId: data.gradeId,
-        effectiveDate: new Date(data.hireDate),
+        effectiveDate: data.hireDate ? new Date(data.hireDate) : new Date(),
         reason: "入社時付与",
       },
     });

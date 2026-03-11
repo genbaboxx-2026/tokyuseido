@@ -16,14 +16,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { COMPANY_LABELS, EVALUATION_CYCLE_OPTIONS } from '@/lib/company/constants';
+import { COMPANY_LABELS } from '@/lib/company/constants';
 import { companySchema, type CompanyFormData } from '@/lib/company/validation';
 import { Pencil, X, Check, Loader2 } from 'lucide-react';
 
@@ -35,7 +28,6 @@ interface CompanyCardProps {
     representative?: string | null;
     establishedDate?: Date | string | null;
     businessDescription?: string | null;
-    evaluationCycle: 'HALF_YEARLY' | 'YEARLY';
   };
 }
 
@@ -44,10 +36,6 @@ export function CompanyCard({ company }: CompanyCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const evaluationCycleLabel =
-    EVALUATION_CYCLE_OPTIONS.find((opt) => opt.value === company.evaluationCycle)?.label ||
-    company.evaluationCycle;
 
   const formatDate = (date: Date | string | null | undefined) => {
     if (!date) return '-';
@@ -64,7 +52,6 @@ export function CompanyCard({ company }: CompanyCardProps) {
         ? new Date(company.establishedDate).toISOString().split('T')[0]
         : '',
       businessDescription: company.businessDescription ?? '',
-      evaluationCycle: company.evaluationCycle ?? 'HALF_YEARLY',
     },
   });
 
@@ -104,7 +91,6 @@ export function CompanyCard({ company }: CompanyCardProps) {
         ? new Date(company.establishedDate).toISOString().split('T')[0]
         : '',
       businessDescription: company.businessDescription ?? '',
-      evaluationCycle: company.evaluationCycle ?? 'HALF_YEARLY',
     });
     setError(null);
     setIsEditing(false);
@@ -208,31 +194,6 @@ export function CompanyCard({ company }: CompanyCardProps) {
 
               <FormField
                 control={form.control}
-                name="evaluationCycle"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{COMPANY_LABELS.EVALUATION_CYCLE}</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="評価周期を選択" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {EVALUATION_CYCLE_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
                 name="businessDescription"
                 render={({ field }) => (
                   <FormItem className="md:col-span-2">
@@ -293,13 +254,6 @@ export function CompanyCard({ company }: CompanyCardProps) {
               {COMPANY_LABELS.ESTABLISHED_DATE}
             </dt>
             <dd className="text-base">{formatDate(company.establishedDate)}</dd>
-          </div>
-
-          <div className="space-y-1">
-            <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-              {COMPANY_LABELS.EVALUATION_CYCLE}
-            </dt>
-            <dd className="text-base">{evaluationCycleLabel}</dd>
           </div>
 
           <div className="md:col-span-2 space-y-1">

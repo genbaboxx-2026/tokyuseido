@@ -25,8 +25,6 @@ export interface BonusGanttItem {
   name: string;
   assessmentStart: { month: number; day: number } | null;
   assessmentEnd: { month: number; day: number } | null;
-  evaluationStart: { month: number; day: number } | null;
-  evaluationEnd: { month: number; day: number } | null;
   paymentDate: { month: number; day: number } | null;
 }
 
@@ -56,8 +54,6 @@ interface BonusFormData {
   name: string;
   assessmentStart: MonthDay;
   assessmentEnd: MonthDay;
-  evaluationStart: MonthDay;
-  evaluationEnd: MonthDay;
   paymentDate: MonthDay;
   isNew?: boolean;
   hasChanges?: boolean;
@@ -85,8 +81,6 @@ const convertToFormData = (bs: BonusSetting): BonusFormData => ({
   name: bs.name,
   assessmentStart: extractMD(bs.assessmentStartDate),
   assessmentEnd: extractMD(bs.assessmentEndDate),
-  evaluationStart: extractMD(bs.evaluationStartDate),
-  evaluationEnd: extractMD(bs.evaluationEndDate),
   paymentDate: extractMD(bs.paymentDate),
   isNew: false,
   hasChanges: false,
@@ -96,8 +90,6 @@ const createEmptyFormData = (): BonusFormData => ({
   name: "",
   assessmentStart: emptyMD(),
   assessmentEnd: emptyMD(),
-  evaluationStart: emptyMD(),
-  evaluationEnd: emptyMD(),
   paymentDate: emptyMD(),
   isNew: true,
   hasChanges: true,
@@ -155,8 +147,6 @@ function formsToGantt(forms: BonusFormData[]): BonusGanttItem[] {
     name: f.name,
     assessmentStart: mdToGantt(f.assessmentStart),
     assessmentEnd: mdToGantt(f.assessmentEnd),
-    evaluationStart: mdToGantt(f.evaluationStart),
-    evaluationEnd: mdToGantt(f.evaluationEnd),
     paymentDate: mdToGantt(f.paymentDate),
   }));
 }
@@ -222,8 +212,6 @@ export function BonusSettingManager({
           name: form.name,
           assessmentStartDate: buildDateStr(form.assessmentStart),
           assessmentEndDate: buildDateStr(form.assessmentEnd),
-          evaluationStartDate: buildDateStr(form.evaluationStart),
-          evaluationEndDate: buildDateStr(form.evaluationEnd),
           paymentDate: buildDateStr(form.paymentDate),
         }),
       });
@@ -357,24 +345,6 @@ export function BonusSettingManager({
                   <MonthDaySelector
                     value={form.assessmentEnd}
                     onChange={(md) => handleMDChange(index, "assessmentEnd", md)}
-                    label="終了日"
-                  />
-                </div>
-              </div>
-
-              {/* 評価実施期間 */}
-              <div className="space-y-2">
-                <Label>評価実施期間 *</Label>
-                <div className="flex items-end gap-2">
-                  <MonthDaySelector
-                    value={form.evaluationStart}
-                    onChange={(md) => handleMDChange(index, "evaluationStart", md)}
-                    label="開始日"
-                  />
-                  <span className="text-muted-foreground pb-2">〜</span>
-                  <MonthDaySelector
-                    value={form.evaluationEnd}
-                    onChange={(md) => handleMDChange(index, "evaluationEnd", md)}
                     label="終了日"
                   />
                 </div>

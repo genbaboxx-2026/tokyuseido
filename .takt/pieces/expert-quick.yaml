@@ -1,0 +1,29 @@
+# ⚡ Expert Quick - 高速開発フロー
+name: expert-quick
+initial_movement: plan
+max_movements: 15
+
+movements:
+  - name: plan
+    persona: expert-planner
+    edit: false
+    rules:
+      - condition: Planning complete
+        next: implement
+
+  - name: implement
+    persona: expert-coder
+    edit: true
+    required_permission_mode: edit
+    rules:
+      - condition: Implementation complete
+        next: verify
+
+  - name: verify
+    persona: expert-verifier
+    edit: false
+    rules:
+      - condition: PASS
+        next: COMPLETE
+      - condition: FAIL
+        next: implement

@@ -14,17 +14,9 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { COMPANY_LABELS, EVALUATION_CYCLE_OPTIONS } from '@/lib/company/constants';
+import { COMPANY_LABELS } from '@/lib/company/constants';
 import { companySchema, type CompanyFormData } from '@/lib/company/validation';
 import type { BasicInfoChanges } from '@/types/company-settings';
-import type { EvaluationCycle } from '@/types/company';
 
 interface CompanyBasicInfoFormProps {
   company: {
@@ -33,7 +25,6 @@ interface CompanyBasicInfoFormProps {
     representative: string | null;
     establishedDate: Date | string | null;
     businessDescription: string | null;
-    evaluationCycle: EvaluationCycle;
   };
   onChange: (data: BasicInfoChanges | null) => void;
 }
@@ -52,7 +43,6 @@ export function CompanyBasicInfoForm({ company, onChange }: CompanyBasicInfoForm
       ? new Date(company.establishedDate).toISOString().split('T')[0]
       : '',
     businessDescription: company.businessDescription ?? '',
-    evaluationCycle: company.evaluationCycle ?? 'HALF_YEARLY',
   }), [company]);
 
   const form = useForm<CompanyFormData>({
@@ -73,8 +63,7 @@ export function CompanyBasicInfoForm({ company, onChange }: CompanyBasicInfoForm
         (values.address ?? '') !== (initialValues.address ?? '') ||
         (values.representative ?? '') !== (initialValues.representative ?? '') ||
         (values.establishedDate ?? '') !== (initialValues.establishedDate ?? '') ||
-        (values.businessDescription ?? '') !== (initialValues.businessDescription ?? '') ||
-        values.evaluationCycle !== initialValues.evaluationCycle;
+        (values.businessDescription ?? '') !== (initialValues.businessDescription ?? '');
 
       if (hasChanges) {
         onChange({
@@ -83,7 +72,6 @@ export function CompanyBasicInfoForm({ company, onChange }: CompanyBasicInfoForm
           representative: values.representative || null,
           establishedDate: values.establishedDate || null,
           businessDescription: values.businessDescription || null,
-          evaluationCycle: values.evaluationCycle as EvaluationCycle,
         });
       } else {
         onChange(null);
@@ -155,31 +143,6 @@ export function CompanyBasicInfoForm({ company, onChange }: CompanyBasicInfoForm
                   <FormControl>
                     <Input {...field} type="date" value={field.value ?? ''} />
                   </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="evaluationCycle"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{COMPANY_LABELS.EVALUATION_CYCLE}</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="評価周期を選択" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {EVALUATION_CYCLE_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                   <FormMessage />
                 </FormItem>
               )}

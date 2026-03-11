@@ -11,7 +11,6 @@ export const companySchema = z.object({
   representative: z.string().max(100, '代表者名は100文字以内で入力してください').optional().nullable(),
   establishedDate: z.string().optional().nullable(),
   businessDescription: z.string().max(2000, '事業内容は2000文字以内で入力してください').optional().nullable(),
-  evaluationCycle: z.enum(['HALF_YEARLY', 'YEARLY']),
 });
 
 export type CompanyFormData = z.infer<typeof companySchema>;

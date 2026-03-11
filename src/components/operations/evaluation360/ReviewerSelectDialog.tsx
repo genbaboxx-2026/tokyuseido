@@ -44,8 +44,8 @@ export function ReviewerSelectDialog({
     onOpenChange(isOpen)
   }
 
-  const { data: employees } = useQuery({
-    queryKey: ["employees", companyId],
+  const { data: employeesData } = useQuery<{ employees: { id: string; firstName: string; lastName: string; grade?: { name: string } | null; department?: { name: string } | null }[] }>({
+    queryKey: ["companyEmployees", companyId],
     queryFn: async () => {
       const res = await fetch(`/api/companies/${companyId}/employees`)
       if (!res.ok) throw new Error("従業員の取得に失敗しました")
@@ -54,7 +54,7 @@ export function ReviewerSelectDialog({
     enabled: open,
   })
 
-  const filteredEmployees = employees?.filter((emp: { id: string; firstName: string; lastName: string }) => {
+  const filteredEmployees = (employeesData?.employees ?? []).filter((emp: { id: string; firstName: string; lastName: string }) => {
     if (emp.id === excludeEmployeeId) return false
     const fullName = `${emp.lastName}${emp.firstName}`
     return fullName.includes(searchTerm)
@@ -80,7 +80,7 @@ export function ReviewerSelectDialog({
             onChange={(e) => setSearchTerm(e.target.value)}
           />
           <div className="max-h-[300px] overflow-y-auto space-y-2">
-            {filteredEmployees.map((emp: { id: string; firstName: string; lastName: string; department?: { name: string }; grade?: { name: string } }) => (
+            {filteredEmployees.map((emp: { id: string; firstName: string; lastName: string; department?: { name: string } | null; grade?: { name: string } | null }) => (
               <div
                 key={emp.id}
                 className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${

@@ -15,6 +15,8 @@ const startEvaluationSchema = z.object({
   // 新形式: 各イベントごとの評価種別
   evaluationEventIds: z.array(z.string()).optional(),
   eventEvaluationTypes: z.record(z.string(), z.array(z.enum(["individual", "360"]))).optional(),
+  // 期間固有テンプレート自動作成オプション
+  createPeriodTemplates: z.boolean().optional(),
 }).refine(
   (data) => data.evaluationPeriodId || (data.periodName && data.periodType && data.startDate && data.endDate),
   { message: "既存の評価期間IDまたは新規作成に必要な情報を指定してください" }
@@ -41,7 +43,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { companyId, evaluationPeriodId, periodName, periodType, startDate, endDate, evaluationType, eventEvaluationTypes } = validationResult.data
+    const { companyId, evaluationPeriodId, periodName, periodType, startDate, endDate, evaluationType, eventEvaluationTypes, createPeriodTemplates } = validationResult.data
 
     // 評価種別リストを構築（新形式 or 旧形式）
     type EvalType = "individual" | "360"
@@ -93,7 +95,78 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 2. 会社の全アクティブ従業員を取得（評価フラグ付き）
+    // 2. 期間固有テンプレートの自動作成（オプション）
+    let periodTemplatesCreated = 0
+    if (createPeriodTemplates && evaluationTypesToCreate.includes("individual")) {
+      // 確定済みのマスターテンプレートを取得
+      const masterTemplates = await prisma.evaluationTemplate.findMany({
+        where: {
+          status: "confirmed",
+          gradeJobTypeConfig: {
+            grade: { companyId },
+          },
+        },
+        include: {
+          items: { orderBy: [{ category: "asc" }, { sortOrder: "asc" }] },
+          gradeJobTypeConfig: {
+            include: {
+              grade: { select: { id: true, name: true } },
+              jobType: { select: { id: true, name: true } },
+            },
+          },
+        },
+      })
+
+      for (const masterTemplate of masterTemplates) {
+        const config = masterTemplate.gradeJobTypeConfig
+        if (!config) continue
+
+        // 既存の期間固有テンプレートをチェック
+        const existing = await prisma.periodEvaluationTemplate.findUnique({
+          where: {
+            periodId_gradeId_jobTypeId: {
+              periodId: period.id,
+              gradeId: config.grade.id,
+              jobTypeId: config.jobType.id,
+            },
+          },
+        })
+
+        if (existing) continue
+
+        // 期間固有テンプレートを作成
+        await prisma.periodEvaluationTemplate.create({
+          data: {
+            periodId: period.id,
+            sourceTemplateId: masterTemplate.id,
+            gradeId: config.grade.id,
+            jobTypeId: config.jobType.id,
+            name: masterTemplate.name,
+            description: masterTemplate.description,
+            status: "draft",
+            items: {
+              create: masterTemplate.items.map((item) => ({
+                sourceItemId: item.id,
+                name: item.name,
+                description: item.description,
+                category: item.category,
+                maxScore: item.maxScore,
+                weight: item.weight,
+                sortOrder: item.sortOrder,
+                isAdded: false,
+                isDeleted: false,
+                isModified: false,
+              })),
+            },
+          },
+        })
+        periodTemplatesCreated++
+      }
+
+      console.log(`期間固有テンプレート作成数: ${periodTemplatesCreated}`)
+    }
+
+    // 3. 会社の全アクティブ従業員を取得（評価フラグ付き）
     const employees = await prisma.employee.findMany({
       where: {
         companyId,
@@ -120,7 +193,7 @@ export async function POST(request: NextRequest) {
     console.log("個別評価対象:", employees.filter(e => e.hasIndividualEvaluation).map(e => `${e.lastName}${e.firstName}`))
     console.log("360対象:", employees.filter(e => e.has360Evaluation).map(e => `${e.lastName}${e.firstName}`))
 
-    // 3. 従業員ごとにテンプレートを取得（GradeJobTypeConfig経由）
+    // 4. 従業員ごとにテンプレートを取得（GradeJobTypeConfig経由）
     // 「対象者を追加」APIと同じロジック
     const employeeTemplateMap = new Map<string, string>()
 
@@ -158,7 +231,7 @@ export async function POST(request: NextRequest) {
 
     console.log("テンプレートマップ:", employeeTemplateMap.size, "件")
 
-    // 4. 従業員ごとにEmployeeEvaluation + EmployeeEvaluationItemを一括作成
+    // 5. 従業員ごとにEmployeeEvaluation + EmployeeEvaluationItemを一括作成
     let createdCount = 0
     let skippedCount = 0
     const skippedReasons: { noTemplate: number; alreadyExists: number } = {
@@ -238,7 +311,7 @@ export async function POST(request: NextRequest) {
     console.log(`360評価作成数: ${evaluation360CreatedCount}`)
     console.log(`スキップ数: ${skippedCount}`)
 
-    // 5. 360度評価レコードを一括作成（評価種別に360が含まれる場合）
+    // 6. 360度評価レコードを一括作成（評価種別に360が含まれる場合）
     let created360Count = 0
     if (evaluationTypesToCreate.includes("360")) {
       // 既存の360度評価レコードを取得
@@ -269,7 +342,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 6. 評価期間のステータスをDISTRIBUTEDに更新（作成があった場合）
+    // 7. 評価期間のステータスをDISTRIBUTEDに更新（作成があった場合）
     if ((createdCount > 0 || created360Count > 0) && period.status === "STARTED") {
       await prisma.evaluationPeriod.update({
         where: { id: period.id },
@@ -283,6 +356,7 @@ export async function POST(request: NextRequest) {
         totalEmployees: employees.length,
         createdEvaluations: createdCount,
         created360Records: created360Count,
+        createdPeriodTemplates: periodTemplatesCreated,
         skippedEmployees: skippedCount,
         skippedReasons,
       },

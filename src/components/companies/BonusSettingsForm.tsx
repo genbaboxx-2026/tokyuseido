@@ -28,8 +28,6 @@ export interface BonusGanttItem {
   name: string;
   assessmentStart: { month: number; day: number } | null;
   assessmentEnd: { month: number; day: number } | null;
-  evaluationStart: { month: number; day: number } | null;
-  evaluationEnd: { month: number; day: number } | null;
   paymentDate: { month: number; day: number } | null;
 }
 
@@ -60,8 +58,6 @@ interface BonusFormData {
   name: string;
   assessmentStart: MonthDay;
   assessmentEnd: MonthDay;
-  evaluationStart: MonthDay;
-  evaluationEnd: MonthDay;
   paymentDate: MonthDay;
   isNew: boolean;
   isUpdated: boolean;
@@ -90,8 +86,6 @@ const convertToFormData = (bs: BonusSetting): BonusFormData => ({
   name: bs.name,
   assessmentStart: extractMD(bs.assessmentStartDate),
   assessmentEnd: extractMD(bs.assessmentEndDate),
-  evaluationStart: extractMD(bs.evaluationStartDate),
-  evaluationEnd: extractMD(bs.evaluationEndDate),
   paymentDate: extractMD(bs.paymentDate),
   isNew: false,
   isUpdated: false,
@@ -103,8 +97,6 @@ const createEmptyFormData = (): BonusFormData => ({
   name: '',
   assessmentStart: emptyMD(),
   assessmentEnd: emptyMD(),
-  evaluationStart: emptyMD(),
-  evaluationEnd: emptyMD(),
   paymentDate: emptyMD(),
   isNew: true,
   isUpdated: false,
@@ -181,8 +173,6 @@ function formsToGantt(forms: BonusFormData[]): BonusGanttItem[] {
       name: f.name,
       assessmentStart: mdToGantt(f.assessmentStart),
       assessmentEnd: mdToGantt(f.assessmentEnd),
-      evaluationStart: mdToGantt(f.evaluationStart),
-      evaluationEnd: mdToGantt(f.evaluationEnd),
       paymentDate: mdToGantt(f.paymentDate),
     }));
 }
@@ -219,8 +209,8 @@ export function BonusSettingsForm({
           paymentDate: buildDateStr(f.paymentDate),
           assessmentStartDate: buildDateStr(f.assessmentStart),
           assessmentEndDate: buildDateStr(f.assessmentEnd),
-          evaluationStartDate: buildDateStr(f.evaluationStart),
-          evaluationEndDate: buildDateStr(f.evaluationEnd),
+          evaluationStartDate: buildDateStr(f.assessmentStart),
+          evaluationEndDate: buildDateStr(f.assessmentEnd),
         }));
 
       const updated = forms
@@ -231,8 +221,8 @@ export function BonusSettingsForm({
           paymentDate: buildDateStr(f.paymentDate),
           assessmentStartDate: buildDateStr(f.assessmentStart),
           assessmentEndDate: buildDateStr(f.assessmentEnd),
-          evaluationStartDate: buildDateStr(f.evaluationStart),
-          evaluationEndDate: buildDateStr(f.evaluationEnd),
+          evaluationStartDate: buildDateStr(f.assessmentStart),
+          evaluationEndDate: buildDateStr(f.assessmentEnd),
         }));
 
       const deleted = forms
@@ -354,11 +344,7 @@ export function BonusSettingsForm({
             <div
               key={form.id}
               className={cn(
-                'border rounded-lg p-4 space-y-4 transition-colors',
-                form.isNew && 'bg-green-50 dark:bg-green-950/20',
-                form.isUpdated &&
-                  !form.isNew &&
-                  'bg-yellow-50 dark:bg-yellow-950/20',
+                'border rounded-lg p-4 space-y-4 transition-colors bg-white',
                 form.isDeleted && 'bg-red-50 dark:bg-red-950/20 opacity-60'
               )}
             >
@@ -434,32 +420,6 @@ export function BonusSettingsForm({
                     value={form.assessmentEnd}
                     onChange={(md) =>
                       handleMDChange(index, 'assessmentEnd', md)
-                    }
-                    label="終了日"
-                    disabled={form.isDeleted}
-                  />
-                </div>
-              </div>
-
-              {/* 評価実施期間 */}
-              <div className="space-y-2">
-                <Label className={cn(form.isDeleted && 'line-through')}>
-                  評価実施期間 *
-                </Label>
-                <div className="flex items-end gap-2">
-                  <MonthDaySelector
-                    value={form.evaluationStart}
-                    onChange={(md) =>
-                      handleMDChange(index, 'evaluationStart', md)
-                    }
-                    label="開始日"
-                    disabled={form.isDeleted}
-                  />
-                  <span className="text-muted-foreground pb-2">〜</span>
-                  <MonthDaySelector
-                    value={form.evaluationEnd}
-                    onChange={(md) =>
-                      handleMDChange(index, 'evaluationEnd', md)
                     }
                     label="終了日"
                     disabled={form.isDeleted}

@@ -32,8 +32,6 @@ export interface GanttBonusData {
   name: string;
   assessmentStart: GanttMonthDay | null;
   assessmentEnd: GanttMonthDay | null;
-  evaluationStart: GanttMonthDay | null;
-  evaluationEnd: GanttMonthDay | null;
   paymentDate: GanttMonthDay | null;
 }
 
@@ -173,9 +171,8 @@ export function PeriodGanttChart({ evalPeriodStart, evalPeriodEnd, salaryReflect
 
           {bonuses.map((bonus, i) => {
             const a = isValidMD(bonus.assessmentStart) && isValidMD(bonus.assessmentEnd);
-            const e = isValidMD(bonus.evaluationStart) && isValidMD(bonus.evaluationEnd);
             const p = isValidMD(bonus.paymentDate);
-            if (!a && !e && !p) return null;
+            if (!a && !p) return null;
 
             return (
               <div key={bonus.name || i}>
@@ -186,11 +183,6 @@ export function PeriodGanttChart({ evalPeriodStart, evalPeriodEnd, salaryReflect
                 {a && (
                   <ChartRow label="査定期間" indent>
                     <GanttBar start={bonus.assessmentStart!} end={bonus.assessmentEnd!} colorClass="bg-emerald-500/80" />
-                  </ChartRow>
-                )}
-                {e && (
-                  <ChartRow label="評価期間" indent>
-                    <GanttBar start={bonus.evaluationStart!} end={bonus.evaluationEnd!} colorClass="bg-amber-500/80" />
                   </ChartRow>
                 )}
                 {p && (
@@ -207,7 +199,6 @@ export function PeriodGanttChart({ evalPeriodStart, evalPeriodEnd, salaryReflect
           <div className="flex items-center gap-1.5"><div className="h-3 w-6 rounded-sm bg-blue-500/80" /><span>評価期間</span></div>
           <div className="flex items-center gap-1.5"><div className="h-3 w-3 rounded-full bg-blue-600" /><span>号俸反映</span></div>
           <div className="flex items-center gap-1.5"><div className="h-3 w-6 rounded-sm bg-emerald-500/80" /><span>査定期間</span></div>
-          <div className="flex items-center gap-1.5"><div className="h-3 w-6 rounded-sm bg-amber-500/80" /><span>賞与評価</span></div>
           <div className="flex items-center gap-1.5"><div className="h-3 w-3 rounded-full bg-red-500" /><span>支給日</span></div>
         </div>
       </CardContent>

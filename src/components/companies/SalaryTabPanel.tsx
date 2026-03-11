@@ -41,8 +41,6 @@ function buildInitialBonuses(bonuses: BonusSetting[]): GanttBonusData[] {
     name: bs.name,
     assessmentStart: extractMD(bs.assessmentStartDate),
     assessmentEnd: extractMD(bs.assessmentEndDate),
-    evaluationStart: extractMD(bs.evaluationStartDate),
-    evaluationEnd: extractMD(bs.evaluationEndDate),
     paymentDate: extractMD(bs.paymentDate),
   }));
 }

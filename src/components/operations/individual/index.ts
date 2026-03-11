@@ -23,3 +23,4 @@ export {
 } from "./IndividualPreparingTypes"
 export { EvaluationDetailModal } from "./EvaluationDetailModal"
 export { ItemFormDialog, DeleteItemDialog } from "./ItemFormDialog"
+export { IndividualTemplatePanel } from "./IndividualTemplatePanel"

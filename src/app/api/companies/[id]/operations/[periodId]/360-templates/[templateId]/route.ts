@@ -65,6 +65,7 @@ export async function GET(
 const updateTemplateSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional().nullable(),
+  status: z.enum(["draft", "confirmed"]).optional(),
   categories: z.array(z.object({
     id: z.string().optional(),
     name: z.string(),
@@ -102,7 +103,7 @@ export async function PUT(
       )
     }
 
-    const { name, description, categories, gradeIds, jobTypeIds } = validationResult.data
+    const { name, description, status, categories, gradeIds, jobTypeIds } = validationResult.data
 
     // テンプレートを確認
     const template = await prisma.evaluation360Template.findUnique({
@@ -134,12 +135,13 @@ export async function PUT(
     // トランザクションで更新
     await prisma.$transaction(async (tx) => {
       // テンプレート基本情報を更新
-      if (name !== undefined || description !== undefined) {
+      if (name !== undefined || description !== undefined || status !== undefined) {
         await tx.evaluation360Template.update({
           where: { id: templateId },
           data: {
             ...(name !== undefined && { name }),
             ...(description !== undefined && { description }),
+            ...(status !== undefined && { status }),
           },
         })
       }

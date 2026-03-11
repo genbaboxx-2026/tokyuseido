@@ -1,0 +1,54 @@
+# 🔬 Expert Full - 全専門家によるフルレビュー
+name: expert-full
+initial_movement: plan
+max_movements: 30
+
+movements:
+  - name: plan
+    persona: expert-planner
+    edit: false
+    rules:
+      - condition: Planning complete
+        next: architect
+
+  - name: architect
+    persona: expert-architect
+    edit: false
+    rules:
+      - condition: Design complete
+        next: implement
+
+  - name: implement
+    persona: expert-coder
+    edit: true
+    required_permission_mode: edit
+    rules:
+      - condition: Implementation complete
+        next: verify
+
+  - name: verify
+    persona: expert-verifier
+    edit: false
+    rules:
+      - condition: PASS
+        next: critic-review
+      - condition: FAIL
+        next: implement
+
+  - name: critic-review
+    persona: expert-critic
+    edit: false
+    rules:
+      - condition: Approved
+        next: risk-review
+      - condition: Needs fix
+        next: implement
+
+  - name: risk-review
+    persona: expert-risk-manager
+    edit: false
+    rules:
+      - condition: Approved
+        next: COMPLETE
+      - condition: Risk found
+        next: implement

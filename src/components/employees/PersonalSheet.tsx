@@ -430,8 +430,8 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
           email: form.email || null,
           gender: form.gender || null,
           birthDate: form.birthDate || null,
-          hireDate: form.hireDate,
-          employmentType: form.employmentType,
+          hireDate: form.hireDate || null,
+          employmentType: form.employmentType || null,
           jobTypeId: form.jobTypeId || null,
           gradeId: form.gradeId || null,
           positionId: form.positionId || null,
@@ -650,11 +650,11 @@ export function PersonalSheet({ employee: initialEmployee, basePath = "/employee
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div>
-                    <FieldLabel required>入社日</FieldLabel>
+                    <FieldLabel>入社日</FieldLabel>
                     <Input className="mt-1.5 w-full" type="date" value={form.hireDate} onChange={e => updateField("hireDate", e.target.value)} />
                   </div>
                   <div>
-                    <FieldLabel required>雇用形態</FieldLabel>
+                    <FieldLabel>雇用形態</FieldLabel>
                     <Select value={form.employmentType} onValueChange={(v) => updateField("employmentType", v)}>
                       <SelectTrigger className="mt-1.5 w-full"><SelectValue placeholder="選択してください" /></SelectTrigger>
                       <SelectContent>

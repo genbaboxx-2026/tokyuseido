@@ -147,14 +147,14 @@ model Position {
 // ========================================
 
 model Grade {
-  id                         String                       @id @default(cuid())
-  companyId                  String                       @map("company_id")
-  name                       String
-  level                      Int
-  employmentType             EmploymentType               @map("employment_type")
-  isManagement               Boolean                      @default(false) @map("is_management")
-  createdAt                  DateTime                     @default(now()) @map("created_at")
-  updatedAt                  DateTime                     @updatedAt @map("updated_at")
+  id                          String                       @id @default(cuid())
+  companyId                   String                       @map("company_id")
+  name                        String
+  level                       Int
+  employmentType              EmploymentType               @map("employment_type")
+  isManagement                Boolean                      @default(false) @map("is_management")
+  createdAt                   DateTime                     @default(now()) @map("created_at")
+  updatedAt                   DateTime                     @updatedAt @map("updated_at")
   gradeHistory                EmployeeGradeHistory[]
   employees                   Employee[]
   evaluation360TemplateGrades Evaluation360TemplateGrade[]
@@ -163,6 +163,7 @@ model Grade {
   gradeJobTypeGroups          GradeJobTypeGroup[]
   company                     Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   salaryTableEntries          SalaryTableEntry[]
+  periodEvaluationTemplates   PeriodEvaluationTemplate[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -194,6 +195,7 @@ model JobType {
   evaluation360TemplateJobTypes Evaluation360TemplateJobType[]
   gradeJobTypeConfigs           GradeJobTypeConfig[]
   jobCategory                   JobCategory                     @relation(fields: [jobCategoryId], references: [id], onDelete: Cascade)
+  periodEvaluationTemplates     PeriodEvaluationTemplate[]
 
   @@unique([jobCategoryId, name])
   @@index([jobCategoryId])
@@ -309,6 +311,7 @@ model Employee {
   evaluation360ReviewerAssignments Evaluation360ReviewerAssignment[]
   evaluation360s                  Evaluation360[]
   evaluationCustomItems           EvaluationCustomItem[]
+  evaluationResults               EvaluationResult[]
   individualEvaluations           IndividualEvaluation[]
   interviewRecords                InterviewRecord[]
 
@@ -450,22 +453,26 @@ model EmployeeCurrentSalary {
 // ========================================
 
 model EvaluationPeriod {
-  id                        String                     @id @default(cuid())
-  companyId                 String                     @map("company_id")
-  name                      String
-  periodType                PeriodType                 @map("period_type")
-  startDate                 DateTime                   @map("start_date")
-  endDate                   DateTime                   @map("end_date")
-  status                    EvaluationStatus           @default(STARTED)
-  createdAt                 DateTime                   @default(now()) @map("created_at")
-  updatedAt                 DateTime                   @updatedAt @map("updated_at")
-  employeeEvaluationWeights EmployeeEvaluationWeight[]
-  evaluation360Records      Evaluation360Record[]
-  evaluation360s            Evaluation360[]
-  evaluation360Templates    Evaluation360Template[]
-  evaluationCustomItems     EvaluationCustomItem[]
-  company                   Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  individualEvaluations     IndividualEvaluation[]
+  id                          String                       @id @default(cuid())
+  companyId                   String                       @map("company_id")
+  name                        String
+  periodType                  PeriodType                   @map("period_type")
+  startDate                   DateTime                     @map("start_date")
+  endDate                     DateTime                     @map("end_date")
+  status                      EvaluationStatus             @default(STARTED)
+  createdAt                   DateTime                     @default(now()) @map("created_at")
+  updatedAt                   DateTime                     @updatedAt @map("updated_at")
+  finalizedAt                 DateTime?                    @map("finalized_at")
+  finalizedBy                 String?                      @map("finalized_by")
+  employeeEvaluationWeights   EmployeeEvaluationWeight[]
+  evaluation360Records        Evaluation360Record[]
+  evaluation360s              Evaluation360[]
+  evaluation360Templates      Evaluation360Template[]
+  evaluationCustomItems       EvaluationCustomItem[]
+  evaluationResults           EvaluationResult[]
+  company                     Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  individualEvaluations       IndividualEvaluation[]
+  periodEvaluationTemplates   PeriodEvaluationTemplate[]
 
   @@index([companyId])
   @@map("evaluation_periods")
@@ -537,17 +544,18 @@ model EmployeeEvaluationWeight {
 // ========================================
 
 model EvaluationTemplate {
-  id                   String                   @id @default(cuid())
-  gradeJobTypeConfigId String                   @unique @map("grade_job_type_config_id")
-  name                 String
-  description          String?
-  isActive             Boolean                  @default(true) @map("is_active")
-  createdAt            DateTime                 @default(now()) @map("created_at")
-  updatedAt            DateTime                 @updatedAt @map("updated_at")
-  status               String                   @default("draft")
-  employeeEvaluations  EmployeeEvaluation[]
-  items                EvaluationTemplateItem[]
-  gradeJobTypeConfig   GradeJobTypeConfig       @relation(fields: [gradeJobTypeConfigId], references: [id], onDelete: Cascade)
+  id                        String                     @id @default(cuid())
+  gradeJobTypeConfigId      String                     @unique @map("grade_job_type_config_id")
+  name                      String
+  description               String?
+  isActive                  Boolean                    @default(true) @map("is_active")
+  createdAt                 DateTime                   @default(now()) @map("created_at")
+  updatedAt                 DateTime                   @updatedAt @map("updated_at")
+  status                    String                     @default("draft")
+  employeeEvaluations       EmployeeEvaluation[]
+  items                     EvaluationTemplateItem[]
+  gradeJobTypeConfig        GradeJobTypeConfig         @relation(fields: [gradeJobTypeConfigId], references: [id], onDelete: Cascade)
+  periodEvaluationTemplates PeriodEvaluationTemplate[]
 
   @@index([gradeJobTypeConfigId])
   @@map("evaluation_templates")
@@ -566,9 +574,66 @@ model EvaluationTemplateItem {
   updatedAt               DateTime                  @updatedAt @map("updated_at")
   employeeEvaluationItems EmployeeEvaluationItem[]
   evaluationTemplate      EvaluationTemplate        @relation(fields: [evaluationTemplateId], references: [id], onDelete: Cascade)
+  periodTemplateItems     PeriodEvaluationTemplateItem[] @relation("SourceTemplateItem")
 
   @@index([evaluationTemplateId])
   @@map("evaluation_template_items")
+}
+
+// ========================================
+// 期間固有個別評価テンプレート
+// ========================================
+
+// 評価期間ごとにカスタマイズ可能なテンプレートインスタンス
+model PeriodEvaluationTemplate {
+  id               String                         @id @default(cuid())
+  periodId         String                         @map("period_id")
+  sourceTemplateId String                         @map("source_template_id")
+  gradeId          String                         @map("grade_id")
+  jobTypeId        String                         @map("job_type_id")
+  name             String
+  description      String?
+  status           String                         @default("draft") // draft, confirmed
+  createdAt        DateTime                       @default(now()) @map("created_at")
+  updatedAt        DateTime                       @updatedAt @map("updated_at")
+
+  period           EvaluationPeriod               @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  sourceTemplate   EvaluationTemplate             @relation(fields: [sourceTemplateId], references: [id], onDelete: Cascade)
+  grade            Grade                          @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  jobType          JobType                        @relation(fields: [jobTypeId], references: [id], onDelete: Cascade)
+  items            PeriodEvaluationTemplateItem[]
+
+  @@unique([periodId, gradeId, jobTypeId])
+  @@index([periodId])
+  @@index([sourceTemplateId])
+  @@index([gradeId])
+  @@index([jobTypeId])
+  @@map("period_evaluation_templates")
+}
+
+// 期間固有テンプレートの項目
+model PeriodEvaluationTemplateItem {
+  id               String                   @id @default(cuid())
+  periodTemplateId String                   @map("period_template_id")
+  sourceItemId     String?                  @map("source_item_id")
+  name             String
+  description      String?
+  category         String
+  maxScore         Int                      @default(5) @map("max_score")
+  weight           Float                    @default(1.0)
+  sortOrder        Int                      @default(0) @map("sort_order")
+  isAdded          Boolean                  @default(false) @map("is_added")
+  isDeleted        Boolean                  @default(false) @map("is_deleted")
+  isModified       Boolean                  @default(false) @map("is_modified")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+
+  periodTemplate   PeriodEvaluationTemplate @relation(fields: [periodTemplateId], references: [id], onDelete: Cascade)
+  sourceItem       EvaluationTemplateItem?  @relation("SourceTemplateItem", fields: [sourceItemId], references: [id], onDelete: SetNull)
+
+  @@index([periodTemplateId])
+  @@index([sourceItemId])
+  @@map("period_evaluation_template_items")
 }
 
 model EvaluationItem {
@@ -933,6 +998,46 @@ model Employee360EvaluationItem {
 }
 
 // ========================================
+// 評価確定・号俸反映
+// ========================================
+
+model EvaluationResult {
+  id                   String           @id @default(cuid())
+  evaluationPeriodId   String           @map("evaluation_period_id")
+  employeeId           String           @map("employee_id")
+  score360Raw          Float?           @map("score_360_raw")
+  score360Max          Float?           @map("score_360_max")
+  scoreIndividualRaw   Float?           @map("score_individual_raw")
+  scoreIndividualMax   Float?           @map("score_individual_max")
+  ratio360             Float?           @map("ratio_360")
+  ratioIndividual      Float?           @map("ratio_individual")
+  combinedScore        Float            @map("combined_score")
+  periodRank           EvaluationRating @map("period_rank")
+  previousPeriodRank   EvaluationRating? @map("previous_period_rank")
+  annualRank           EvaluationRating @map("annual_rank")
+  previousStep         Int?             @map("previous_step")
+  previousRank         String?          @map("previous_rank")
+  previousBaseSalary   Int?             @map("previous_base_salary")
+  stepAdjustment       Int              @default(0) @map("step_adjustment")
+  newStep              Int?             @map("new_step")
+  newRank              String?          @map("new_rank")
+  newBaseSalary        Int?             @map("new_base_salary")
+  status               ResultStatus     @default(DRAFT)
+  confirmedAt          DateTime?        @map("confirmed_at")
+  confirmedBy          String?          @map("confirmed_by")
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
+
+  evaluationPeriod     EvaluationPeriod @relation(fields: [evaluationPeriodId], references: [id], onDelete: Cascade)
+  employee             Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([evaluationPeriodId, employeeId])
+  @@index([evaluationPeriodId])
+  @@index([employeeId])
+  @@map("evaluation_results")
+}
+
+// ========================================
 // 賞与設定
 // ========================================
 
@@ -1022,6 +1127,12 @@ enum Gender {
 enum PeriodType {
   FIRST_HALF
   SECOND_HALF
+}
+
+enum ResultStatus {
+  DRAFT
+  CONFIRMED
+  REVERTED
 }
 
 enum UserRole {

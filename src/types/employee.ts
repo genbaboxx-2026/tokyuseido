@@ -72,9 +72,9 @@ export interface CreateEmployeeDto {
   email?: string;
   gender?: Gender;
   birthDate?: Date | string;
-  hireDate: Date | string;
+  hireDate?: Date | string;
   departmentId?: string;
-  employmentType: EmploymentType;
+  employmentType?: EmploymentType;
   jobTypeId?: string;
   gradeId?: string;
   positionId?: string;

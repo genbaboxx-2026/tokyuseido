@@ -13,7 +13,49 @@
  * - 等級間でオーバーラップすることで、同じ号俸 = 同じ基本給
  */
 
-import type { SalaryTableMatrixRow } from "@/types/salary"
+import type { SalaryTableMatrixRow, RoundingMethod, RoundingUnit, RoundingOptions } from "@/types/salary"
+
+// ============================================
+// 丸め処理関数
+// ============================================
+
+/**
+ * 金額を指定された方法と単位で丸める
+ * @param value - 丸める前の金額
+ * @param method - 丸め方法（none/ceil/floor/round）
+ * @param unit - 丸め単位（1/10/100/1000/10000）
+ * @returns 丸めた後の金額
+ */
+export function roundSalary(
+  value: number,
+  method: RoundingMethod = "none",
+  unit: RoundingUnit = 1
+): number {
+  if (method === "none" || unit === 1) {
+    return Math.round(value)
+  }
+
+  switch (method) {
+    case "ceil":
+      return Math.ceil(value / unit) * unit
+    case "floor":
+      return Math.floor(value / unit) * unit
+    case "round":
+      return Math.round(value / unit) * unit
+    default:
+      return Math.round(value)
+  }
+}
+
+/**
+ * 丸めオプションを適用して金額を丸める
+ */
+export function applyRounding(value: number, options?: RoundingOptions): number {
+  if (!options) {
+    return Math.round(value)
+  }
+  return roundSalary(value, options.method, options.unit)
+}
 
 /**
  * 利用可能なランク文字の定義
@@ -142,6 +184,8 @@ export interface SalaryTableCalculationParams {
   rankStartLetter?: RankLetter    // 開始ランク文字（最上位）
   rankEndLetter?: RankLetter      // 終了ランク文字（最下位）
   gradeBandOverrides?: { gradeId: string; startBand: number }[]  // 等級別開始号俸帯の上書き
+  roundingMethod?: RoundingMethod // 丸め方法
+  roundingUnit?: RoundingUnit     // 丸め単位
 }
 
 /**
@@ -182,7 +226,9 @@ export function generateSalaryLadder(
   stepsPerBand: number,
   salaryBandCount: number,
   rankStartLetter: RankLetter = "S",
-  rankEndLetter: RankLetter = "D"
+  rankEndLetter: RankLetter = "D",
+  roundingMethod: RoundingMethod = "none",
+  roundingUnit: RoundingUnit = 1
 ): { salaryLadder: SalaryStep[]; bands: SalaryBandInfo[]; ranks: string[] } {
   const totalSteps = salaryBandCount * stepsPerBand
 
@@ -230,13 +276,16 @@ export function generateSalaryLadder(
       currentSalary = currentSalary + stepDiff
     }
 
+    // 丸め処理を適用
+    const roundedSalary = roundSalary(currentSalary, roundingMethod, roundingUnit)
+
     salaryLadder.push({
       stepNumber: step,
-      baseSalary: Math.round(currentSalary),
+      baseSalary: roundedSalary,
       bandNumber,
       stepDiff: step === 1 ? 0 : stepDiff,
       rank,
-      annualSalary: Math.round(currentSalary) * 12,
+      annualSalary: roundedSalary * 12,
     })
   }
 
@@ -354,12 +403,14 @@ export function calculateSalaryTable(
     rankStartLetter = "S",
     rankEndLetter = "D",
     gradeBandOverrides,
+    roundingMethod = "none",
+    roundingUnit = 1,
   } = params
 
   // ランク範囲から等級あたりの号俸帯数を計算
   const bandsPerGrade = getBandsPerGrade(rankStartLetter, rankEndLetter)
 
-  // 1本の号俸列を生成
+  // 1本の号俸列を生成（丸めオプションを渡す）
   const { salaryLadder, bands, ranks } = generateSalaryLadder(
     baseSalaryMin,
     initialStepDiff,
@@ -367,7 +418,9 @@ export function calculateSalaryTable(
     stepsPerBand,
     salaryBandCount,
     rankStartLetter,
-    rankEndLetter
+    rankEndLetter,
+    roundingMethod,
+    roundingUnit
   )
 
   const totalSteps = salaryLadder.length
@@ -510,7 +563,9 @@ export function calculateBaseSalaryMax(params: SalaryTableCalculationParams): nu
     params.stepsPerBand,
     params.salaryBandCount,
     params.rankStartLetter,
-    params.rankEndLetter
+    params.rankEndLetter,
+    params.roundingMethod,
+    params.roundingUnit
   )
 
   return salaryLadder.length > 0 ? salaryLadder[salaryLadder.length - 1].baseSalary : 0

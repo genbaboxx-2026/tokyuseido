@@ -12,17 +12,14 @@ import {
   CompanySettingsSection,
 } from "@/components/evaluations"
 
-// 評価タブタイプ
 type EvaluationTabType = "individual" | "settings" | "360"
 
-// 従業員型（簡易）
 interface Employee {
   id: string
   has360Evaluation?: boolean
   hasIndividualEvaluation?: boolean
 }
 
-// 評価ステータス型
 interface EvaluationStatus {
   employeeId: string
   status: string
@@ -33,10 +30,8 @@ export default function EvaluationsPage() {
   const companyId = params.companyId as string
   const [activeTab, setActiveTab] = useState<EvaluationTabType>("360")
 
-  // 一度表示したタブを記録（遅延ロード用）
   const loadedTabs = useRef<Set<EvaluationTabType>>(new Set(["360"]))
 
-  // 従業員データを取得
   const { data: employees } = useQuery<Employee[]>({
     queryKey: ["employees", companyId],
     queryFn: async () => {
@@ -48,7 +43,6 @@ export default function EvaluationsPage() {
     staleTime: 5 * 60 * 1000,
   })
 
-  // 個別評価のステータスを取得
   const { data: individualStatuses } = useQuery<EvaluationStatus[]>({
     queryKey: ["evaluationStatuses", companyId, "individual"],
     queryFn: async () => {
@@ -56,10 +50,9 @@ export default function EvaluationsPage() {
       if (!res.ok) return []
       return res.json()
     },
-    staleTime: 30 * 1000, // 30秒キャッシュ
+    staleTime: 30 * 1000,
   })
 
-  // 360度評価のステータスを取得
   const { data: evaluation360Statuses } = useQuery<EvaluationStatus[]>({
     queryKey: ["evaluationStatuses", companyId, "360"],
     queryFn: async () => {
@@ -70,7 +63,6 @@ export default function EvaluationsPage() {
     staleTime: 30 * 1000,
   })
 
-  // 個別評価が全員完了しているかチェック
   const isIndividualAllCompleted = (() => {
     if (!employees || !individualStatuses) return false
     const targetEmployees = employees.filter(e => e.hasIndividualEvaluation)
@@ -79,7 +71,6 @@ export default function EvaluationsPage() {
     return targetEmployees.every(e => statusMap.get(e.id) === "COMPLETED")
   })()
 
-  // 360度評価が全員完了しているかチェック
   const is360AllCompleted = (() => {
     if (!employees || !evaluation360Statuses) return false
     const targetEmployees = employees.filter(e => e.has360Evaluation)
@@ -96,7 +87,6 @@ export default function EvaluationsPage() {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
-      {/* ヘッダー */}
       <div>
         <h1 className="text-2xl font-bold">評価制度</h1>
         <p className="text-muted-foreground">
@@ -104,7 +94,6 @@ export default function EvaluationsPage() {
         </p>
       </div>
 
-      {/* 3タブ構成 */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="grid w-full max-w-lg grid-cols-3">
           <TabsTrigger value="360" className="flex items-center gap-2">
@@ -128,7 +117,6 @@ export default function EvaluationsPage() {
         </TabsList>
 
         <div className="mt-6">
-          {/* 遅延ロード: タブを一度選択するまでコンポーネントをマウントしない */}
           {loadedTabs.current.has("360") && (
             <TabsContent value="360" forceMount className={`mt-0 space-y-6 ${activeTab !== "360" ? "hidden" : ""}`}>
               <Evaluation360TemplateSection companyId={companyId} />

@@ -8,6 +8,12 @@ import {
   CheckCircle,
   Pencil,
   Send,
+  Users,
+  Sparkles,
+  ChevronDown,
+  ChevronRight,
+  Plus,
+  Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -33,12 +39,13 @@ import { DistributionConfirmModal } from "@/components/operations/evaluation360/
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 
 interface Eval360PreparingTabProps {
   companyId: string
@@ -108,7 +115,7 @@ export function Eval360PreparingTab({
   // 楽観的更新用のローカルチェック状態
   const [optimisticChecked, setOptimisticChecked] = useState<Record<string, boolean>>({})
   const [editFormData, setEditFormData] = useState<{
-    categories: { name: string; sortOrder: number; items: { content: string; sortOrder: number; maxScore: number }[] }[]
+    categories: { name: string; sortOrder: number; isExpanded: boolean; items: { content: string; sortOrder: number; maxScore: number }[] }[]
   }>({ categories: [] })
 
   // 各レコードの評価者設定（ローカルステート）
@@ -116,6 +123,10 @@ export function Eval360PreparingTab({
 
   // 配布確認モーダル状態
   const [showDistributionModal, setShowDistributionModal] = useState(false)
+
+  // テンプレート一括適用モーダル状態
+  const [applyingTemplate, setApplyingTemplate] = useState<Template360 | null>(null)
+  const [applyOverwrite, setApplyOverwrite] = useState(false)
 
   // 全レコードを取得（全タブでキャッシュ共有）
   const { data, isLoading } = useQuery<{ records: Record360[] }>({
@@ -508,6 +519,64 @@ export function Eval360PreparingTab({
     },
   })
 
+  // テンプレート一括適用mutation
+  const applyTemplateMutation = useMutation({
+    mutationFn: async ({ templateId, overwrite }: { templateId: string; overwrite: boolean }) => {
+      const res = await fetch(
+        `/api/companies/${companyId}/operations/${periodId}/360-templates/${templateId}/apply`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ overwrite }),
+        }
+      )
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || "テンプレートの適用に失敗しました")
+      }
+      return res.json()
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({
+        queryKey: ["360Records", companyId, periodId],
+      })
+      setApplyingTemplate(null)
+      setApplyOverwrite(false)
+      alert(`${data.appliedCount}件に適用しました。\n${data.skippedCount}件はスキップされました。`)
+    },
+    onError: (error: Error) => {
+      alert(error.message)
+    },
+  })
+
+  // 一括テンプレート生成mutation
+  const bulkGenerateItemsMutation = useMutation({
+    mutationFn: async (overwrite: boolean) => {
+      const res = await fetch(
+        `/api/companies/${companyId}/operations/${periodId}/360/bulk-generate-items`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ overwrite }),
+        }
+      )
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || "一括生成に失敗しました")
+      }
+      return res.json()
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({
+        queryKey: ["360Records", companyId, periodId],
+      })
+      alert(`${data.generated}件に項目を生成しました。\n${data.skipped || 0}件はスキップされました。`)
+    },
+    onError: (error: Error) => {
+      alert(error.message)
+    },
+  })
+
   // テンプレート詳細取得
   const { data: templateDetailData } = useQuery({
     queryKey: ["360TemplateDetail", editingTemplate?.id],
@@ -529,6 +598,7 @@ export function Eval360PreparingTab({
         categories: templateDetailData.categories.map((c: { name: string; sortOrder: number; items: { content: string; sortOrder: number; maxScore: number }[] }) => ({
           name: c.name,
           sortOrder: c.sortOrder,
+          isExpanded: true,
           items: c.items.map((i: { content: string; sortOrder: number; maxScore: number }) => ({
             content: i.content,
             sortOrder: i.sortOrder,
@@ -560,9 +630,40 @@ export function Eval360PreparingTab({
       ...prev,
       categories: [
         ...prev.categories,
-        { name: "新しいカテゴリ", sortOrder: prev.categories.length, items: [] },
+        { name: "新しいカテゴリ", sortOrder: prev.categories.length, isExpanded: true, items: [] },
       ],
     }))
+  }
+
+  // カテゴリ展開/折りたたみ
+  const toggleCategoryExpand = (categoryIndex: number) => {
+    setEditFormData((prev) => ({
+      ...prev,
+      categories: prev.categories.map((c, i) =>
+        i === categoryIndex ? { ...c, isExpanded: !c.isExpanded } : c
+      ),
+    }))
+  }
+
+  // アイテム削除
+  const handleRemoveItem = (categoryIndex: number, itemIndex: number) => {
+    setEditFormData((prev) => ({
+      ...prev,
+      categories: prev.categories.map((c, ci) =>
+        ci === categoryIndex
+          ? { ...c, items: c.items.filter((_, ii) => ii !== itemIndex) }
+          : c
+      ),
+    }))
+  }
+
+  // テンプレート保存（status指定）
+  const handleSaveTemplateWithStatus = (status: "draft" | "confirmed") => {
+    if (!editingTemplate) return
+    updateTemplateMutation.mutate({
+      templateId: editingTemplate.id,
+      data: { categories: editFormData.categories, status },
+    })
   }
 
   // アイテム追加
@@ -577,14 +678,6 @@ export function Eval360PreparingTab({
     }))
   }
 
-  // テンプレート保存
-  const handleSaveTemplate = () => {
-    if (!editingTemplate) return
-    updateTemplateMutation.mutate({
-      templateId: editingTemplate.id,
-      data: { categories: editFormData.categories },
-    })
-  }
 
   // 評価者変更ハンドラ
   const handleReviewerChange = (recordId: string, employeeId: string, index: number, reviewerId: string | null) => {
@@ -703,6 +796,20 @@ export function Eval360PreparingTab({
       {/* 一括操作ボタン */}
       <div className="flex gap-2 items-center">
         <Button
+          variant="outline"
+          size="sm"
+          onClick={() => bulkGenerateItemsMutation.mutate(false)}
+          disabled={bulkGenerateItemsMutation.isPending || confirmedTemplates.length === 0}
+        >
+          {bulkGenerateItemsMutation.isPending ? (
+            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+          ) : (
+            <FileText className="h-4 w-4 mr-1" />
+          )}
+          一括テンプレ生成
+        </Button>
+
+        <Button
           size="sm"
           disabled={!allRecordsReady || reviewersForModal.length === 0}
           className="bg-green-600 hover:bg-green-700"
@@ -761,15 +868,25 @@ export function Eval360PreparingTab({
                   <div className="text-right text-sm text-muted-foreground">
                     <span>{template.categoryCount}カテゴリ / {template.itemCount}項目 / 満点{template.totalMaxScore}点</span>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleEditTemplate(template)}
-                    disabled={copyTemplateMutation.isPending}
-                  >
-                    <Pencil className="h-4 w-4 mr-1" />
-                    編集
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleEditTemplate(template)}
+                      disabled={copyTemplateMutation.isPending}
+                    >
+                      <Pencil className="h-4 w-4 mr-1" />
+                      編集
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => setApplyingTemplate(template)}
+                      disabled={applyTemplateMutation.isPending}
+                    >
+                      <Users className="h-4 w-4 mr-1" />
+                      全員に適用
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -779,142 +896,269 @@ export function Eval360PreparingTab({
 
       {/* テンプレート編集ダイアログ */}
       <Dialog open={!!editingTemplate} onOpenChange={(open) => !open && setEditingTemplate(null)}>
-        <DialogContent className="!max-w-[calc(100vw-300px)] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>テンプレート編集（この期間のみ）</DialogTitle>
+        <DialogContent className="!max-w-[calc(100vw-80px)] w-[calc(100vw-80px)] h-[90vh] flex flex-col p-0">
+          <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b">
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-yellow-500" />
+              360度評価テンプレート
+            </DialogTitle>
+            <DialogDescription>
+              {editingTemplate?.name} - ここでの変更はこの評価期間のみに適用されます
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              ここでの変更はこの評価期間のみに適用され、マスターテンプレートには影響しません。
-            </p>
 
-            {editFormData.categories.map((category, cIdx) => (
-              <div key={cIdx} className="border rounded-lg p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm font-medium">カテゴリ名</Label>
-                  <Input
-                    value={category.name}
-                    onChange={(e) => {
-                      setEditFormData((prev) => ({
-                        ...prev,
-                        categories: prev.categories.map((c, i) =>
-                          i === cIdx ? { ...c, name: e.target.value } : c
-                        ),
-                      }))
-                    }}
-                    className="flex-1"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setEditFormData((prev) => ({
-                        ...prev,
-                        categories: prev.categories.filter((_, i) => i !== cIdx),
-                      }))
-                    }}
-                    className="text-red-500"
-                  >
-                    削除
-                  </Button>
-                </div>
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {editFormData.categories.map((category, cIdx) => {
+              const categoryItemCount = category.items.length
+              const categoryTotalScore = category.items.reduce((sum, item) => sum + item.maxScore, 0)
 
-                <div className="space-y-2 ml-4">
-                  {category.items.map((item, iIdx) => (
-                    <div key={iIdx} className="flex items-center gap-2">
-                      <Textarea
-                        value={item.content}
+              return (
+                <div key={cIdx} className="border rounded-lg overflow-hidden">
+                  {/* カテゴリヘッダー */}
+                  <div className="w-full flex items-center justify-between p-3 bg-muted/50">
+                    <div
+                      className="flex items-center gap-3 cursor-pointer hover:opacity-70 transition-opacity flex-1"
+                      onClick={() => toggleCategoryExpand(cIdx)}
+                    >
+                      {category.isExpanded ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                      <Input
+                        value={category.name}
                         onChange={(e) => {
+                          e.stopPropagation()
                           setEditFormData((prev) => ({
                             ...prev,
-                            categories: prev.categories.map((c, ci) =>
-                              ci === cIdx
-                                ? {
-                                    ...c,
-                                    items: c.items.map((it, ii) =>
-                                      ii === iIdx ? { ...it, content: e.target.value } : it
-                                    ),
-                                  }
-                                : c
+                            categories: prev.categories.map((c, i) =>
+                              i === cIdx ? { ...c, name: e.target.value } : c
                             ),
                           }))
                         }}
-                        className="flex-1 min-h-[50px] resize-none"
-                        placeholder="評価項目の内容"
-                        rows={2}
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-bold text-lg h-8 w-48 bg-transparent border-dashed"
+                        placeholder="カテゴリ名"
                       />
-                      <div className="flex items-center gap-1">
-                        <Label className="text-xs">配点</Label>
-                        <Input
-                          type="number"
-                          value={item.maxScore}
-                          onChange={(e) => {
-                            setEditFormData((prev) => ({
-                              ...prev,
-                              categories: prev.categories.map((c, ci) =>
-                                ci === cIdx
-                                  ? {
-                                      ...c,
-                                      items: c.items.map((it, ii) =>
-                                        ii === iIdx ? { ...it, maxScore: parseInt(e.target.value) || 0 } : it
-                                      ),
-                                    }
-                                  : c
-                              ),
-                            }))
-                          }}
-                          className="w-16"
-                        />
+                      <Badge variant="secondary" className="text-xs">
+                        {categoryItemCount}項目 / {categoryTotalScore}点満点
+                      </Badge>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setEditFormData((prev) => ({
+                          ...prev,
+                          categories: prev.categories.filter((_, i) => i !== cIdx),
+                        }))
+                      }}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  {/* 項目一覧 */}
+                  {category.isExpanded && (
+                    <div className="p-3 space-y-2">
+                      {/* ヘッダー */}
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground px-1">
+                        <span className="w-6 text-center">No</span>
+                        <span className="flex-1">項目名</span>
+                        <span className="w-14 text-center">満点</span>
+                        <span className="w-8"></span>
                       </div>
+
+                      {/* 項目リスト */}
+                      {category.items.map((item, iIdx) => (
+                        <div key={iIdx} className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground w-6 text-center">
+                            {iIdx + 1}
+                          </span>
+                          <Input
+                            value={item.content}
+                            onChange={(e) => {
+                              setEditFormData((prev) => ({
+                                ...prev,
+                                categories: prev.categories.map((c, ci) =>
+                                  ci === cIdx
+                                    ? {
+                                        ...c,
+                                        items: c.items.map((it, ii) =>
+                                          ii === iIdx ? { ...it, content: e.target.value } : it
+                                        ),
+                                      }
+                                    : c
+                                ),
+                              }))
+                            }}
+                            className="flex-1 h-8 text-sm"
+                            placeholder="評価項目を入力"
+                          />
+                          <Input
+                            type="number"
+                            min="0"
+                            value={item.maxScore}
+                            onChange={(e) => {
+                              setEditFormData((prev) => ({
+                                ...prev,
+                                categories: prev.categories.map((c, ci) =>
+                                  ci === cIdx
+                                    ? {
+                                        ...c,
+                                        items: c.items.map((it, ii) =>
+                                          ii === iIdx ? { ...it, maxScore: parseInt(e.target.value) || 0 } : it
+                                        ),
+                                      }
+                                    : c
+                                ),
+                              }))
+                            }}
+                            className="w-14 h-8 text-center text-sm"
+                          />
+                          <div className="w-8 flex justify-center">
+                            {category.items.length > 1 && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                onClick={() => handleRemoveItem(cIdx, iIdx)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* 項目追加ボタン */}
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
-                        onClick={() => {
-                          setEditFormData((prev) => ({
-                            ...prev,
-                            categories: prev.categories.map((c, ci) =>
-                              ci === cIdx
-                                ? { ...c, items: c.items.filter((_, ii) => ii !== iIdx) }
-                                : c
-                            ),
-                          }))
-                        }}
-                        className="text-red-500"
+                        className="h-7 text-xs"
+                        onClick={() => handleAddItem(cIdx)}
                       >
-                        ×
+                        <Plus className="h-3 w-3 mr-1" />
+                        項目追加
                       </Button>
                     </div>
-                  ))}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleAddItem(cIdx)}
-                  >
-                    + 項目を追加
-                  </Button>
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
 
             <Button variant="outline" onClick={handleAddCategory}>
-              + カテゴリを追加
+              <Plus className="h-4 w-4 mr-1" />
+              カテゴリを追加
             </Button>
+          </div>
 
-            <div className="flex justify-end gap-2 pt-4 border-t">
-              <Button variant="outline" onClick={() => setEditingTemplate(null)}>
-                キャンセル
-              </Button>
-              <Button
-                onClick={handleSaveTemplate}
-                disabled={updateTemplateMutation.isPending}
-              >
-                {updateTemplateMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                ) : null}
-                保存
-              </Button>
+          <DialogFooter className="flex-shrink-0 border-t p-4">
+            <div className="flex justify-between w-full">
+              <div>
+                {editingTemplate?.periodId && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (editingTemplate) {
+                        applyTemplateMutation.mutate({
+                          templateId: editingTemplate.id,
+                          overwrite: false,
+                        })
+                      }
+                    }}
+                    disabled={applyTemplateMutation.isPending}
+                  >
+                    {applyTemplateMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    ) : (
+                      <Users className="h-4 w-4 mr-1" />
+                    )}
+                    従業員に反映
+                  </Button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setEditingTemplate(null)}>
+                  閉じる
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => handleSaveTemplateWithStatus("draft")}
+                  disabled={updateTemplateMutation.isPending}
+                >
+                  {updateTemplateMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : null}
+                  保存
+                </Button>
+                <Button
+                  onClick={() => handleSaveTemplateWithStatus("confirmed")}
+                  disabled={updateTemplateMutation.isPending}
+                >
+                  {updateTemplateMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4 mr-1" />
+                  )}
+                  確定
+                </Button>
+              </div>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* テンプレート一括適用確認ダイアログ */}
+      <Dialog open={!!applyingTemplate} onOpenChange={(open) => !open && setApplyingTemplate(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>テンプレートを全員に適用</DialogTitle>
+            <DialogDescription>
+              {applyingTemplate?.name}を対象等級・職種の全従業員に適用します。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="text-sm">
+              <p className="font-medium mb-2">対象範囲:</p>
+              <ul className="list-disc ml-4 text-muted-foreground">
+                <li>等級: {applyingTemplate?.grades.map((g) => g.name).join(", ") || "全て"}</li>
+                <li>職種: {applyingTemplate?.jobTypes.map((jt) => jt.name).join(", ") || "全て"}</li>
+              </ul>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="overwrite"
+                checked={applyOverwrite}
+                onCheckedChange={(checked) => setApplyOverwrite(!!checked)}
+              />
+              <Label htmlFor="overwrite" className="text-sm">
+                既存の評価項目を上書きする（スコア入力済みでも上書き）
+              </Label>
             </div>
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApplyingTemplate(null)}>
+              キャンセル
+            </Button>
+            <Button
+              onClick={() => {
+                if (applyingTemplate) {
+                  applyTemplateMutation.mutate({
+                    templateId: applyingTemplate.id,
+                    overwrite: applyOverwrite,
+                  })
+                }
+              }}
+              disabled={applyTemplateMutation.isPending}
+            >
+              {applyTemplateMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : null}
+              適用
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -106,20 +106,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!body.hireDate) {
-      return NextResponse.json(
-        { error: "入社日は必須です" },
-        { status: 400 }
-      );
-    }
-
-    if (!body.employmentType) {
-      return NextResponse.json(
-        { error: "雇用形態は必須です" },
-        { status: 400 }
-      );
-    }
-
     // 社員番号の重複チェック
     const exists = await checkEmployeeCodeExists(
       body.companyId,
@@ -140,9 +126,9 @@ export async function POST(request: NextRequest) {
       email: body.email || undefined,
       gender: body.gender || undefined,
       birthDate: body.birthDate || undefined,
-      hireDate: body.hireDate,
+      hireDate: body.hireDate || undefined,
       departmentId: body.departmentId || undefined,
-      employmentType: body.employmentType,
+      employmentType: body.employmentType || undefined,
       jobTypeId: body.jobTypeId || undefined,
       gradeId: body.gradeId || undefined,
       positionId: body.positionId || undefined,

@@ -1,0 +1,132 @@
+name: expert-cqrs
+description: |
+  Issue検証・修正のためのCQRS風オーケストレーション。
+  計画 → 設計 → ブラウザ検証 → 解析 → 判定 → 実装 → レビュー → リスク管理
+initial_movement: planner
+max_movements: 25
+
+# Section maps (persona key → file path)
+personas:
+  planner: ../facets/personas/planner.md
+  architect: ../facets/personas/architect.md
+  browser_operator: ../facets/personas/browser_operator.md
+  inspector: ../facets/personas/inspector.md
+  verifier: ../facets/personas/verifier.md
+  coder: ../facets/personas/coder.md
+  critic: ../facets/personas/critic.md
+  risk_manager: ../facets/personas/risk_manager.md
+
+movements:
+  # Phase 1: 計画
+  - name: planner
+    persona: planner
+    persona_name: "🎯 Planner（計画担当）"
+    edit: false
+    allowed_tools: [Read, Glob, Grep, WebSearch, WebFetch]
+    rules:
+      - condition: 検証観点が明確化された
+        next: architect
+      - condition: 情報不足で進行不可
+        next: ABORT
+    instruction_template: |
+      Issue に記載された背景・事象・期待動作を整理し、検証観点を明確化してください。
+
+  # Phase 2: 設計
+  - name: architect
+    persona: architect
+    persona_name: "🏗️ Architect（設計担当）"
+    edit: false
+    allowed_tools: [Read, Glob, Grep, WebSearch, WebFetch]
+    rules:
+      - condition: 設計完了・ブラウザ検証が必要
+        next: browser_operator
+      - condition: 設計完了・実装に進む
+        next: coder
+    instruction_template: |
+      修正に必要な設計変更点を整理してください。既存仕様を壊さないことを最優先とします。
+
+  # Phase 3: ブラウザ操作
+  - name: browser_operator
+    persona: browser_operator
+    persona_name: "🌐 Browser Operator（検証実行）"
+    edit: false
+    allowed_tools: [Read, Glob, Grep, Bash, WebFetch]
+    rules:
+      - condition: ログ・ネットワーク情報を取得完了
+        next: inspector
+      - condition: ブラウザ検証スキップ
+        next: coder
+    instruction_template: |
+      Issue に記載された再現手順を忠実に実行し、console.log/error と Network request/response を取得してください。
+
+  # Phase 4: データ解析
+  - name: inspector
+    persona: inspector
+    persona_name: "🔍 Inspector（データ解析）"
+    edit: false
+    allowed_tools: [Read, Glob, Grep]
+    rules:
+      - condition: データ解析完了
+        next: verifier
+    instruction_template: |
+      browser_operator が取得した Network 情報と console ログを解析し、確認対象データを事実として抽出してください。
+
+  # Phase 5: 判定
+  - name: verifier
+    persona: verifier
+    persona_name: "✅ Verifier（検証判定）"
+    edit: false
+    allowed_tools: [Read, Glob, Grep]
+    rules:
+      - condition: PASS
+        next: COMPLETE
+      - condition: FAIL - 実装が必要
+        next: coder
+    instruction_template: |
+      inspector の結果をもとに、Issue に記載された期待値と実測値を比較してください。
+      必ず PASS / FAIL を明示してください。
+
+  # Phase 6: 実装
+  - name: coder
+    persona: coder
+    persona_name: "💻 Coder（実装担当）"
+    edit: true
+    required_permission_mode: edit
+    allowed_tools: [Read, Glob, Grep, Edit, Write, Bash, WebSearch, WebFetch]
+    rules:
+      - condition: 実装完了
+        next: critic
+      - condition: 実装不可
+        next: ABORT
+    instruction_template: |
+      architect の設計をもとに実装してください。修正後も既存挙動が維持されるよう注意してください。
+
+  # Phase 7: 批評
+  - name: critic
+    persona: critic
+    persona_name: "🧐 Critic（コードレビュー）"
+    edit: false
+    allowed_tools: [Read, Glob, Grep]
+    rules:
+      - condition: 問題なし
+        next: risk_manager
+      - condition: 要修正
+        next: coder
+    instruction_template: |
+      修正内容に潜在的な問題や副作用がないか指摘してください。
+
+  # Phase 8: リスク管理
+  - name: risk_manager
+    persona: risk_manager
+    persona_name: "🛡️ Risk Manager（リスク評価）"
+    edit: false
+    allowed_tools: [Read, Glob, Grep]
+    rules:
+      - condition: リスクなし・再検証が必要
+        next: browser_operator
+      - condition: リスクなし・検証不要
+        next: COMPLETE
+      - condition: 要対応
+        next: coder
+    instruction_template: |
+      セキュリティ・データ整合性・将来的リスクの観点で問題がないか確認してください。

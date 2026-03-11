@@ -81,6 +81,12 @@ export default async function GradesPage({ params }: PageProps) {
             name: true,
           },
         },
+        grade: {
+          select: { id: true, name: true },
+        },
+        jobType: {
+          select: { id: true, name: true },
+        },
       },
     }),
   ]);
@@ -197,7 +203,7 @@ export default async function GradesPage({ params }: PageProps) {
                     </p>
                   </div>
                 ) : (
-                  <RoleMatrix roles={roles} companyId={companyId} jobCategories={jobCategories} />
+                  <RoleMatrix roles={roles} companyId={companyId} jobCategories={jobCategories} allEmployees={employees} />
                 )}
               </CardContent>
             </Card>

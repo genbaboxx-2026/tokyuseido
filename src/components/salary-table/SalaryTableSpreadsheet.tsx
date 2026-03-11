@@ -115,6 +115,9 @@ export function SalaryTableSpreadsheet({
     rangeStatus: RangeStatus
     gradeMinSalary: number | null
     gradeMaxSalary: number | null
+    tableSalary: number
+    salaryDiff: number
+    stepDiff: number
   }
 
   // 従業員を号俸でグループ化（等級関係なく、現基本給以上で最も低い号俸を検索）
@@ -130,19 +133,24 @@ export function SalaryTableSpreadsheet({
       const gradeMaxSalary = empGradeAssignment?.maxSalary ?? null
 
       // 号俸テーブル全体から現基本給以上の号俸を昇順でソート
+      const empBaseSalary = emp.baseSalary ?? 0
       const eligibleSteps = calculationResult.salaryLadder
-        .filter(step => step.baseSalary >= emp.baseSalary)
+        .filter(step => step.baseSalary >= empBaseSalary)
         .sort((a, b) => a.baseSalary - b.baseSalary)
 
       let targetStep: number | null = null
+      let tableSalary = 0
 
       if (eligibleSteps.length > 0) {
         // 現基本給以上で最も低い号俸を選択
         targetStep = eligibleSteps[0].stepNumber
+        tableSalary = eligibleSteps[0].baseSalary
       } else {
         // 現基本給以上の号俸がない場合、テーブルの最高号俸を選択
-        const maxStep = calculationResult.salaryLadder.sort((a, b) => b.baseSalary - a.baseSalary)[0]
+        const sortedSteps = [...calculationResult.salaryLadder].sort((a, b) => b.baseSalary - a.baseSalary)
+        const maxStep = sortedSteps[0]
         targetStep = maxStep?.stepNumber ?? null
+        tableSalary = maxStep?.baseSalary ?? 0
       }
 
       if (targetStep !== null) {
@@ -162,6 +170,15 @@ export function SalaryTableSpreadsheet({
           rangeStatus = "below_min"
         }
 
+        // 差額を計算（テーブル基本給 - 現基本給）
+        const salaryDiff = tableSalary - empBaseSalary
+
+        // 号俸差を計算（現基本給以下で最も近い号俸との差）
+        const sortedLadderAsc = [...calculationResult.salaryLadder].sort((a, b) => a.stepNumber - b.stepNumber)
+        const closestBelowStep = sortedLadderAsc.filter(s => s.baseSalary <= empBaseSalary).sort((a, b) => b.baseSalary - a.baseSalary)[0]
+        const closestBelowStepNumber = closestBelowStep?.stepNumber ?? 1
+        const stepDiff = targetStep - closestBelowStepNumber
+
         const empWithMismatch: EmployeeWithMismatch = {
           ...emp,
           targetStep,
@@ -170,6 +187,9 @@ export function SalaryTableSpreadsheet({
           rangeStatus,
           gradeMinSalary,
           gradeMaxSalary,
+          tableSalary,
+          salaryDiff,
+          stepDiff,
         }
 
         const existing = map.get(targetStep) || []
@@ -212,22 +232,55 @@ export function SalaryTableSpreadsheet({
     return calculationResult.bands.find(b => b.bandNumber === bandNumber)
   }
 
-  // 増加額を計算（前の号俸帯との号差の差）
+  // 号俸帯ごとの実際の号差を計算（丸め後の基本給から）
+  const actualBandStepDiffs = useMemo(() => {
+    const diffs = new Map<number, number>()
+    const stepsPerBand = calculationResult.stepsPerBand
+
+    for (let bandNumber = 1; bandNumber <= calculationResult.totalBands; bandNumber++) {
+      const startStep = (bandNumber - 1) * stepsPerBand + 1
+      const endStep = bandNumber * stepsPerBand
+
+      // この号俸帯の最初と最後の号俸を取得
+      const firstStepData = calculationResult.salaryLadder.find(s => s.stepNumber === startStep)
+      const lastStepData = calculationResult.salaryLadder.find(s => s.stepNumber === endStep)
+
+      if (firstStepData && lastStepData && stepsPerBand > 1) {
+        // 実際の号差 = (最上位基本給 - 最下位基本給) / (ステップ数 - 1)
+        const actualDiff = Math.round((lastStepData.baseSalary - firstStepData.baseSalary) / (stepsPerBand - 1))
+        diffs.set(bandNumber, actualDiff)
+      } else if (firstStepData) {
+        // 1ステップの場合は隣の号俸帯との差を使用
+        const nextStepData = calculationResult.salaryLadder.find(s => s.stepNumber === endStep + 1)
+        if (nextStepData) {
+          diffs.set(bandNumber, nextStepData.baseSalary - lastStepData!.baseSalary)
+        }
+      }
+    }
+    return diffs
+  }, [calculationResult.salaryLadder, calculationResult.stepsPerBand, calculationResult.totalBands])
+
+  // 実際の増加額を計算（前の号俸帯との号差の差、丸め後）
   const getIncreaseAmount = (bandNumber: number): number | null => {
     if (bandNumber <= 1) return null
-    const currentBand = calculationResult.bands.find(b => b.bandNumber === bandNumber)
-    const prevBand = calculationResult.bands.find(b => b.bandNumber === bandNumber - 1)
-    if (!currentBand || !prevBand) return null
-    return currentBand.stepDiff - prevBand.stepDiff
+    const currentDiff = actualBandStepDiffs.get(bandNumber)
+    const prevDiff = actualBandStepDiffs.get(bandNumber - 1)
+    if (currentDiff === undefined || prevDiff === undefined) return null
+    return currentDiff - prevDiff
   }
 
-  // 増加率を計算
+  // 実際の増加率を計算（丸め後）
   const getIncreaseRate = (bandNumber: number): number | null => {
     if (bandNumber <= 1) return null
-    const currentBand = calculationResult.bands.find(b => b.bandNumber === bandNumber)
-    const prevBand = calculationResult.bands.find(b => b.bandNumber === bandNumber - 1)
-    if (!currentBand || !prevBand || prevBand.stepDiff === 0) return null
-    return currentBand.stepDiff / prevBand.stepDiff
+    const currentDiff = actualBandStepDiffs.get(bandNumber)
+    const prevDiff = actualBandStepDiffs.get(bandNumber - 1)
+    if (currentDiff === undefined || prevDiff === undefined || prevDiff === 0) return null
+    return currentDiff / prevDiff
+  }
+
+  // 実際の号差を取得
+  const getActualStepDiff = (bandNumber: number): number | null => {
+    return actualBandStepDiffs.get(bandNumber) ?? null
   }
 
   return (
@@ -239,8 +292,6 @@ export function SalaryTableSpreadsheet({
           <tr className="border-b">
             <th className="sticky left-0 z-30 bg-gray-100 dark:bg-gray-800 px-2 py-1 border-r" />
             <th className="sticky left-[50px] z-30 bg-gray-100 dark:bg-gray-800 px-2 py-1 border-r" />
-            <th className="bg-gray-100 dark:bg-gray-800 px-2 py-1 border-r" />
-            <th className="bg-gray-100 dark:bg-gray-800 px-2 py-1 border-r" />
             <th className="bg-gray-100 dark:bg-gray-800 px-2 py-1 border-r" />
             <th className="bg-gray-100 dark:bg-gray-800 px-2 py-1 border-r" />
             <th className="bg-gray-100 dark:bg-gray-800 px-2 py-1 border-r" />
@@ -268,13 +319,7 @@ export function SalaryTableSpreadsheet({
               基本給（総支給）
             </th>
             <th className="bg-gray-200 dark:bg-gray-700 px-2 py-1.5 text-right font-semibold min-w-[70px] border-r">
-              号差（円）
-            </th>
-            <th className="bg-gray-200 dark:bg-gray-700 px-2 py-1.5 text-right font-semibold min-w-[60px] border-r">
-              増加額
-            </th>
-            <th className="bg-gray-200 dark:bg-gray-700 px-2 py-1.5 text-right font-semibold min-w-[60px] border-r">
-              増加率
+              号俸差額
             </th>
             <th className="bg-amber-100 dark:bg-amber-900/50 px-2 py-1.5 text-center font-semibold min-w-[140px] border-r">
               該当者(現給与ベース)
@@ -287,7 +332,7 @@ export function SalaryTableSpreadsheet({
                 {grade.name}
               </th>
             ))}
-            <th className="bg-red-100 dark:bg-red-900/50 px-2 py-1.5 text-center font-semibold min-w-[100px]">
+            <th className="bg-red-100 dark:bg-red-900/50 px-2 py-1.5 text-center font-semibold min-w-[180px]">
               等級確認
             </th>
           </tr>
@@ -334,29 +379,21 @@ export function SalaryTableSpreadsheet({
                 <td className="px-2 py-0.5 text-right font-mono border-r">
                   {formatCurrency(step.annualSalary)}
                 </td>
-                {/* 号差（円）- 境界行のみ */}
+                {/* 号俸差額 - 各行で前の号俸との差額を表示 */}
                 <td className="px-2 py-0.5 text-right font-mono border-r">
-                  {isBoundary && bandInfo ? (
-                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                      {bandInfo.stepDiff.toLocaleString()}
-                    </span>
-                  ) : null}
-                </td>
-                {/* 増加額 - 境界行のみ */}
-                <td className="px-2 py-0.5 text-right font-mono border-r">
-                  {increaseAmount !== null ? (
-                    <span className="text-blue-600 dark:text-blue-400">
-                      {increaseAmount.toLocaleString()}
-                    </span>
-                  ) : null}
-                </td>
-                {/* 増加率 - 境界行のみ */}
-                <td className="px-2 py-0.5 text-right font-mono border-r">
-                  {increaseRate !== null ? (
-                    <span className="text-purple-600 dark:text-purple-400">
-                      {increaseRate.toFixed(3)}
-                    </span>
-                  ) : null}
+                  {(() => {
+                    // 最下位号俸は差額なし
+                    if (step.stepNumber === 1) return null
+                    // 前の号俸（1つ下の番号）を取得
+                    const prevStep = calculationResult.salaryLadder.find(s => s.stepNumber === step.stepNumber - 1)
+                    if (!prevStep) return null
+                    const diff = step.baseSalary - prevStep.baseSalary
+                    return (
+                      <span className="text-emerald-600 dark:text-emerald-400">
+                        +{diff.toLocaleString()}
+                      </span>
+                    )
+                  })()}
                 </td>
                 {/* 該当者 */}
                 <td className="px-2 py-0.5 text-center text-xs border-r bg-amber-50/50 dark:bg-amber-900/20">
@@ -398,6 +435,11 @@ export function SalaryTableSpreadsheet({
                       {stepEmployees.map((emp) => {
                         const empGradeName = grades.find(g => g.id === emp.gradeId)?.name || ""
                         const tableGradeNames = emp.tableGrades.map(g => g.name).join("/") || "範囲外"
+                        const diffDisplay = emp.salaryDiff > 0 
+                          ? `+${emp.salaryDiff.toLocaleString()}円` 
+                          : emp.salaryDiff === 0 
+                            ? "±0円"
+                            : `${emp.salaryDiff.toLocaleString()}円`
                         
                         switch (emp.rangeStatus) {
                           case "ok":
@@ -407,6 +449,9 @@ export function SalaryTableSpreadsheet({
                                 className="whitespace-nowrap text-green-600 dark:text-green-400"
                               >
                                 ✓{emp.lastName}
+                                <span className="ml-1 text-gray-500 dark:text-gray-400 text-[10px]">
+                                  ({diffDisplay})
+                                </span>
                               </span>
                             )
                           case "above_max":
@@ -416,6 +461,9 @@ export function SalaryTableSpreadsheet({
                                 className="whitespace-nowrap text-orange-600 dark:text-orange-400 font-medium"
                               >
                                 ⚠{emp.lastName} 上限超過
+                                <span className="ml-1 text-orange-500 dark:text-orange-300 text-[10px]">
+                                  ({diffDisplay})
+                                </span>
                               </span>
                             )
                           case "below_min":
@@ -425,6 +473,9 @@ export function SalaryTableSpreadsheet({
                                 className="whitespace-nowrap text-blue-600 dark:text-blue-400 font-medium"
                               >
                                 ⚠{emp.lastName} 下限不足
+                                <span className="ml-1 text-blue-500 dark:text-blue-300 text-[10px]">
+                                  ({diffDisplay})
+                                </span>
                               </span>
                             )
                           case "grade_mismatch":
@@ -434,6 +485,9 @@ export function SalaryTableSpreadsheet({
                                 className="whitespace-nowrap text-red-600 dark:text-red-400 font-medium"
                               >
                                 ⚠{emp.lastName} 役割:{empGradeName}→給与:{tableGradeNames}
+                                <span className="ml-1 text-red-500 dark:text-red-300 text-[10px]">
+                                  ({diffDisplay})
+                                </span>
                               </span>
                             )
                         }

@@ -124,6 +124,17 @@ export const SALARY_TABLE_UI_TEXT = {
   BASE_SALARY_TABLE: "基本給テーブル",
   MAX_ROW: "max",
   MIN_ROW: "min",
+
+  // 丸め処理
+  ROUNDING: "丸め処理",
+  ROUNDING_METHOD: "丸め方法",
+  ROUNDING_UNIT: "丸め単位",
+  ROUNDING_NONE: "丸めなし",
+  ROUNDING_CEIL: "切り上げ",
+  ROUNDING_FLOOR: "切り捨て",
+  ROUNDING_ROUND: "四捨五入",
+  ROUNDING_METHOD_DESC: "基本給を切りの良い数字に丸める方法",
+  ROUNDING_UNIT_DESC: "丸める単位（例: 1,000円単位）",
 } as const
 
 /**
@@ -175,6 +186,35 @@ export const RANK_LETTER_OPTIONS = [
   { value: "E", label: "E" },
   { value: "F", label: "F" },
 ] as const
+
+/**
+ * 丸め方法オプション
+ */
+export const ROUNDING_METHOD_OPTIONS = [
+  { value: "none", label: "丸めなし" },
+  { value: "ceil", label: "切り上げ" },
+  { value: "floor", label: "切り捨て" },
+  { value: "round", label: "四捨五入" },
+] as const
+
+/**
+ * 丸め単位オプション
+ */
+export const ROUNDING_UNIT_OPTIONS = [
+  { value: 1, label: "1円単位" },
+  { value: 10, label: "10円単位" },
+  { value: 100, label: "100円単位" },
+  { value: 1000, label: "1,000円単位" },
+  { value: 10000, label: "10,000円単位" },
+] as const
+
+/**
+ * 丸め処理デフォルト値
+ */
+export const ROUNDING_DEFAULTS = {
+  method: "none" as const,
+  unit: 1 as const,
+}
 
 // ============================================
 // Zodスキーマ
@@ -236,6 +276,9 @@ export const salaryTableFormSchema = z.object({
   rankEndLetter: z.enum(["S", "A", "B", "C", "D", "E", "F"]).default("D"),
   // 等級別オーバーライド
   gradeOverrides: z.array(gradeOverrideSchema).optional(),
+  // 丸め処理設定
+  roundingMethod: z.enum(["none", "ceil", "floor", "round"]).default("none"),
+  roundingUnit: z.union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000), z.literal(10000)]).default(1),
 }).refine((data) => {
   const letterOrder = ["S", "A", "B", "C", "D", "E", "F"]
   return letterOrder.indexOf(data.rankStartLetter) <= letterOrder.indexOf(data.rankEndLetter)
@@ -288,6 +331,9 @@ export const salaryTableUpdateSchema = z.object({
   rankStartLetter: z.enum(["S", "A", "B", "C", "D", "E", "F"]).optional(),
   rankEndLetter: z.enum(["S", "A", "B", "C", "D", "E", "F"]).optional(),
   gradeOverrides: z.array(gradeOverrideSchema).optional(),
+  // 丸め処理設定
+  roundingMethod: z.enum(["none", "ceil", "floor", "round"]).optional(),
+  roundingUnit: z.union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000), z.literal(10000)]).optional(),
 })
 
 export type SalaryTableUpdateData = z.infer<typeof salaryTableUpdateSchema>

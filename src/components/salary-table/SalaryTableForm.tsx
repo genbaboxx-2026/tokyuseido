@@ -30,6 +30,9 @@ import {
   SALARY_TABLE_DEFAULTS,
   SALARY_TABLE_LIMITS,
   RANK_LETTER_OPTIONS,
+  ROUNDING_METHOD_OPTIONS,
+  ROUNDING_UNIT_OPTIONS,
+  ROUNDING_DEFAULTS,
 } from "@/lib/salary-table"
 import {
   calculateBaseSalaryMax,
@@ -77,6 +80,8 @@ export function SalaryTableForm({
       rankStartLetter: defaultValues?.rankStartLetter || "S",
       rankEndLetter: defaultValues?.rankEndLetter || "D",
       gradeOverrides: defaultValues?.gradeOverrides || [],
+      roundingMethod: defaultValues?.roundingMethod || ROUNDING_DEFAULTS.method,
+      roundingUnit: defaultValues?.roundingUnit || ROUNDING_DEFAULTS.unit,
     },
   })
 
@@ -89,6 +94,8 @@ export function SalaryTableForm({
     "salaryBandCount",
     "rankStartLetter",
     "rankEndLetter",
+    "roundingMethod",
+    "roundingUnit",
   ])
 
   useEffect(() => {
@@ -102,6 +109,8 @@ export function SalaryTableForm({
         salaryBandCount: values.salaryBandCount || SALARY_TABLE_DEFAULTS.salaryBandCount,
         rankStartLetter: values.rankStartLetter as "S" | "A" | "B" | "C" | "D" | "E" | "F",
         rankEndLetter: values.rankEndLetter as "S" | "A" | "B" | "C" | "D" | "E" | "F",
+        roundingMethod: values.roundingMethod as "none" | "ceil" | "floor" | "round",
+        roundingUnit: values.roundingUnit as 1 | 10 | 100 | 1000 | 10000,
       })
       setCalculatedMax(max)
       // フォームの隠しフィールドも更新
@@ -387,6 +396,68 @@ export function SalaryTableForm({
                     </Select>
                     <FormDescription>
                       ランクの終了文字（最下位、デフォルト: D）
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            {/* 丸め処理設定 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <FormField
+                control={form.control}
+                name="roundingMethod"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{SALARY_TABLE_UI_TEXT.ROUNDING_METHOD}</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="丸め方法を選択" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {ROUNDING_METHOD_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      {SALARY_TABLE_UI_TEXT.ROUNDING_METHOD_DESC}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="roundingUnit"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{SALARY_TABLE_UI_TEXT.ROUNDING_UNIT}</FormLabel>
+                    <Select
+                      onValueChange={(value) => field.onChange(Number(value))}
+                      defaultValue={String(field.value)}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="丸め単位を選択" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {ROUNDING_UNIT_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={String(option.value)}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      {SALARY_TABLE_UI_TEXT.ROUNDING_UNIT_DESC}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

@@ -7,7 +7,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import type { CreateBonusSettingDto } from "@/types/company";
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -108,13 +107,6 @@ export async function POST(
       );
     }
 
-    if (!body.evaluationStartDate || !body.evaluationEndDate) {
-      return NextResponse.json(
-        { error: "評価実施期間は必須です" },
-        { status: 400 }
-      );
-    }
-
     if (!body.paymentDate) {
       return NextResponse.json(
         { error: "支給日は必須です" },
@@ -122,25 +114,15 @@ export async function POST(
       );
     }
 
-    const data: CreateBonusSettingDto = {
-      companyId: id,
-      name: body.name,
-      assessmentStartDate: body.assessmentStartDate,
-      assessmentEndDate: body.assessmentEndDate,
-      evaluationStartDate: body.evaluationStartDate,
-      evaluationEndDate: body.evaluationEndDate,
-      paymentDate: body.paymentDate,
-    };
-
     const bonusSetting = await prisma.bonusSetting.create({
       data: {
-        companyId: data.companyId,
-        name: data.name,
-        assessmentStartDate: new Date(data.assessmentStartDate),
-        assessmentEndDate: new Date(data.assessmentEndDate),
-        evaluationStartDate: new Date(data.evaluationStartDate),
-        evaluationEndDate: new Date(data.evaluationEndDate),
-        paymentDate: new Date(data.paymentDate),
+        companyId: id,
+        name: body.name,
+        assessmentStartDate: new Date(body.assessmentStartDate),
+        assessmentEndDate: new Date(body.assessmentEndDate),
+        evaluationStartDate: new Date(body.assessmentStartDate),
+        evaluationEndDate: new Date(body.assessmentEndDate),
+        paymentDate: new Date(body.paymentDate),
       },
     });
 

@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { RoleEditModal } from "./RoleEditModal"
+import type { CompanyEmployee } from "./RoleEditModal"
 import { GRADE_UI_TEXT } from "@/lib/grade/constants"
 
 interface Employee {
@@ -99,10 +100,12 @@ interface RoleMatrixProps {
   roles: RoleData[]
   companyId: string
   jobCategories: JobCategory[]
+  allEmployees: CompanyEmployee[]
 }
 
 interface RoleDataForModal {
   configId: string
+  gradeId: string
   roleId: string | null
   gradeName: string
   gradeLevel: number
@@ -115,7 +118,7 @@ interface RoleDataForModal {
 const ZOOM_LEVELS = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.25, 1.5, 1.75, 2.0]
 const DEFAULT_ZOOM_INDEX = 5
 
-export function RoleMatrix({ roles, companyId, jobCategories }: RoleMatrixProps) {
+export function RoleMatrix({ roles, companyId, jobCategories, allEmployees }: RoleMatrixProps) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [modalOpen, setModalOpen] = useState(false)
@@ -331,13 +334,13 @@ export function RoleMatrix({ roles, companyId, jobCategories }: RoleMatrixProps)
           const clickedJobType = allJobTypes.find((jt) => jt.id === selectedClickedJobTypeId)
           gradeDataMap.set(gradeId, {
             configId: r.config.id,
+            gradeId: r.config.grade.id,
             roleId: r.role?.id || null,
             gradeName: r.config.grade.name,
             gradeLevel: r.config.grade.level,
             jobTypeName: clickedJobType?.name || r.config.jobType.name,
             responsibilities: (r.role?.responsibilities as string[]) || [],
             positionNames: r.role?.positionNames || [],
-            // クリックした職種の従業員のみを表示
             employees: isClickedJobType ? [...r.employees] : [],
           })
         }
@@ -640,6 +643,9 @@ export function RoleMatrix({ roles, companyId, jobCategories }: RoleMatrixProps)
             : ""
         }
         onSave={handleSave}
+        companyId={companyId}
+        allEmployees={allEmployees}
+        targetJobTypeId={selectedClickedJobTypeId || ""}
       />
     </>
   )

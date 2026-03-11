@@ -21,7 +21,7 @@ import { JobTypeManagerEditable } from './JobTypeManagerEditable';
 import { SalarySettingsForm, type SalaryGanttData } from './SalarySettingsForm';
 import { BonusSettingsForm, type BonusGanttItem } from './BonusSettingsForm';
 import { PeriodGanttChart, type GanttMonthDay, type GanttBonusData } from './PeriodGanttChart';
-import type { BonusSetting, CompanySalarySettings, EvaluationCycle } from '@/types/company';
+import type { BonusSetting, CompanySalarySettings } from '@/types/company';
 import type {
   PendingChanges,
   BasicInfoChanges,
@@ -57,7 +57,6 @@ interface Company {
   representative: string | null;
   establishedDate: Date | string | null;
   businessDescription: string | null;
-  evaluationCycle: EvaluationCycle;
   salaryReflectionMonth: number | null;
   salaryReflectionDay: number | null;
   evaluationPeriodStart: Date | string | null;
@@ -128,8 +127,6 @@ export function CompanySettingsClient({
       name: bs.name,
       assessmentStart: extractMD(bs.assessmentStartDate),
       assessmentEnd: extractMD(bs.assessmentEndDate),
-      evaluationStart: extractMD(bs.evaluationStartDate),
-      evaluationEnd: extractMD(bs.evaluationEndDate),
       paymentDate: extractMD(bs.paymentDate),
     }))
   );
@@ -310,7 +307,6 @@ export function CompanySettingsClient({
               representative: company.representative,
               establishedDate: company.establishedDate,
               businessDescription: company.businessDescription,
-              evaluationCycle: company.evaluationCycle,
             }}
             onChange={handleBasicInfoChange}
           />

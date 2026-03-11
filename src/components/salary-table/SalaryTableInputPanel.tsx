@@ -5,7 +5,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent } from "@/components/ui/card"
 import {
   Form,
   FormControl,
@@ -28,11 +27,14 @@ import {
   SALARY_TABLE_DEFAULTS,
   SALARY_TABLE_LIMITS,
   RANK_LETTER_OPTIONS,
+  ROUNDING_METHOD_OPTIONS,
+  ROUNDING_UNIT_OPTIONS,
+  ROUNDING_DEFAULTS,
 } from "@/lib/salary-table"
 
 interface SalaryTableInputPanelProps {
   companyId: string
-  defaultValues?: Partial<SalaryTableFormData>
+  defaultValues?: Partial<SalaryTableFormData> & { id?: string }
   calculatedMax: number
   onValuesChange: (values: Partial<SalaryTableFormData>) => void
   onSubmit: (data: SalaryTableFormData) => void
@@ -64,8 +66,35 @@ export function SalaryTableInputPanel({
       rankStartLetter: defaultValues?.rankStartLetter || "S",
       rankEndLetter: defaultValues?.rankEndLetter || "D",
       gradeOverrides: defaultValues?.gradeOverrides || [],
+      roundingMethod: defaultValues?.roundingMethod || ROUNDING_DEFAULTS.method,
+      roundingUnit: defaultValues?.roundingUnit || ROUNDING_DEFAULTS.unit,
     },
   })
+
+  // defaultValuesが変更されたらフォームをリセット（DBから取得したデータを反映）
+  const prevDefaultValuesIdRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const currentId = defaultValues?.id
+    if (currentId && currentId !== prevDefaultValuesIdRef.current) {
+      prevDefaultValuesIdRef.current = currentId
+      form.reset({
+        companyId,
+        name: defaultValues?.name || "",
+        baseSalaryMax: defaultValues?.baseSalaryMax || SALARY_TABLE_DEFAULTS.baseSalaryMax,
+        baseSalaryMin: defaultValues?.baseSalaryMin || SALARY_TABLE_DEFAULTS.baseSalaryMin,
+        initialStepDiff: defaultValues?.initialStepDiff || SALARY_TABLE_DEFAULTS.initialStepDiff,
+        bandIncreaseRate: defaultValues?.bandIncreaseRate || SALARY_TABLE_DEFAULTS.bandIncreaseRate,
+        stepsPerBand: defaultValues?.stepsPerBand || SALARY_TABLE_DEFAULTS.stepsPerBand,
+        salaryBandCount: defaultValues?.salaryBandCount || SALARY_TABLE_DEFAULTS.salaryBandCount,
+        isActive: defaultValues?.isActive ?? true,
+        rankStartLetter: defaultValues?.rankStartLetter || "S",
+        rankEndLetter: defaultValues?.rankEndLetter || "D",
+        gradeOverrides: defaultValues?.gradeOverrides || [],
+        roundingMethod: defaultValues?.roundingMethod || ROUNDING_DEFAULTS.method,
+        roundingUnit: defaultValues?.roundingUnit || ROUNDING_DEFAULTS.unit,
+      })
+    }
+  }, [defaultValues, companyId, form])
 
   // Use subscription-based watch to avoid infinite loops
   const onValuesChangeRef = useRef(onValuesChange)
@@ -93,10 +122,9 @@ export function SalaryTableInputPanel({
   }
 
   return (
-    <Card className="h-fit">
-      <CardContent className="pt-6">
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+    <div className="h-fit">
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-3">
             {/* 1. 基本給（MIN） */}
             <FormField
               control={form.control}
@@ -296,7 +324,63 @@ export function SalaryTableInputPanel({
               )}
             />
 
-            {/* 7. 基本給（MAX）- 自動計算表示 */}
+            {/* 7. 丸め処理設定 */}
+            <div className="grid grid-cols-2 gap-3">
+              <FormField
+                control={form.control}
+                name="roundingMethod"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">{SALARY_TABLE_UI_TEXT.ROUNDING_METHOD}</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {ROUNDING_METHOD_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="roundingUnit"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">{SALARY_TABLE_UI_TEXT.ROUNDING_UNIT}</FormLabel>
+                    <Select
+                      onValueChange={(value) => field.onChange(Number(value))}
+                      defaultValue={String(field.value)}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {ROUNDING_UNIT_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={String(option.value)}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            {/* 8. 基本給（MAX）- 自動計算表示 */}
             <div className="space-y-2 pt-2">
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-medium">{SALARY_TABLE_UI_TEXT.BASE_SALARY_MAX}</span>
@@ -324,7 +408,6 @@ export function SalaryTableInputPanel({
             </Button>
           </form>
         </Form>
-      </CardContent>
-    </Card>
+    </div>
   )
 }

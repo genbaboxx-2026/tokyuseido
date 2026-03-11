@@ -1,0 +1,36 @@
+# 🔒 Expert Secure - セキュリティ重視フロー
+name: expert-secure
+initial_movement: plan
+max_movements: 25
+
+movements:
+  - name: plan
+    persona: expert-planner
+    edit: false
+    rules:
+      - condition: Planning complete
+        next: architect
+
+  - name: architect
+    persona: expert-architect
+    edit: false
+    rules:
+      - condition: Design complete
+        next: implement
+
+  - name: implement
+    persona: expert-coder
+    edit: true
+    required_permission_mode: edit
+    rules:
+      - condition: Implementation complete
+        next: risk-review
+
+  - name: risk-review
+    persona: expert-risk-manager
+    edit: false
+    rules:
+      - condition: Approved
+        next: COMPLETE
+      - condition: Risk found
+        next: implement

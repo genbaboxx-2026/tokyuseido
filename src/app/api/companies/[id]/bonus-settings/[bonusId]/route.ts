@@ -8,7 +8,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import type { UpdateBonusSettingDto } from "@/types/company";
 
 type RouteParams = {
   params: Promise<{ id: string; bonusId: string }>;
@@ -90,33 +89,18 @@ export async function PUT(
       );
     }
 
-    const data: UpdateBonusSettingDto = {
-      name: body.name,
-      assessmentStartDate: body.assessmentStartDate,
-      assessmentEndDate: body.assessmentEndDate,
-      evaluationStartDate: body.evaluationStartDate,
-      evaluationEndDate: body.evaluationEndDate,
-      paymentDate: body.paymentDate,
-    };
-
     const bonusSetting = await prisma.bonusSetting.update({
       where: { id: bonusId },
       data: {
-        ...(data.name !== undefined && { name: data.name }),
-        ...(data.assessmentStartDate !== undefined && {
-          assessmentStartDate: new Date(data.assessmentStartDate),
+        ...(body.name !== undefined && { name: body.name }),
+        ...(body.assessmentStartDate !== undefined && {
+          assessmentStartDate: new Date(body.assessmentStartDate),
         }),
-        ...(data.assessmentEndDate !== undefined && {
-          assessmentEndDate: new Date(data.assessmentEndDate),
+        ...(body.assessmentEndDate !== undefined && {
+          assessmentEndDate: new Date(body.assessmentEndDate),
         }),
-        ...(data.evaluationStartDate !== undefined && {
-          evaluationStartDate: new Date(data.evaluationStartDate),
-        }),
-        ...(data.evaluationEndDate !== undefined && {
-          evaluationEndDate: new Date(data.evaluationEndDate),
-        }),
-        ...(data.paymentDate !== undefined && {
-          paymentDate: new Date(data.paymentDate),
+        ...(body.paymentDate !== undefined && {
+          paymentDate: new Date(body.paymentDate),
         }),
       },
     });

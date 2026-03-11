@@ -1,0 +1,19 @@
+# 👀 Expert Review Only - レビュー専用（実装なし）
+name: expert-review-only
+initial_movement: critic-review
+max_movements: 10
+
+movements:
+  - name: critic-review
+    persona: expert-critic
+    edit: false
+    rules:
+      - condition: Review complete
+        next: risk-review
+
+  - name: risk-review
+    persona: expert-risk-manager
+    edit: false
+    rules:
+      - condition: Review complete
+        next: COMPLETE

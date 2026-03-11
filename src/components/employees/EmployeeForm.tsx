@@ -38,9 +38,9 @@ const employeeFormSchema = z.object({
   email: z.string().email("有効なメールアドレスを入力してください").optional().or(z.literal("")),
   gender: z.string().optional(),
   birthDate: z.string().optional(),
-  hireDate: z.string().min(1, "入社日は必須です"),
+  hireDate: z.string().optional(),
   jobCategoryId: z.string().optional(),
-  employmentType: z.string().min(1, "雇用形態は必須です"),
+  employmentType: z.string().optional(),
   jobTypeId: z.string().optional(),
   gradeId: z.string().optional(),
   positionId: z.string().optional(),
@@ -66,9 +66,9 @@ interface EmployeeFormInput {
   email?: string;
   gender?: string;
   birthDate?: string;
-  hireDate: string;
+  hireDate?: string;
   jobCategoryId?: string;
-  employmentType: string;
+  employmentType?: string;
   jobTypeId?: string;
   gradeId?: string;
   positionId?: string;
@@ -175,6 +175,8 @@ export function EmployeeForm({
           email: data.email || null,
           gender: data.gender || null,
           birthDate: data.birthDate || null,
+          hireDate: data.hireDate || null,
+          employmentType: data.employmentType || null,
           jobTypeId: data.jobTypeId || null,
           gradeId: data.gradeId || null,
           positionId: data.positionId || null,
@@ -324,7 +326,7 @@ export function EmployeeForm({
               name="hireDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>入社日 *</FormLabel>
+                  <FormLabel>入社日</FormLabel>
                   <FormControl>
                     <Input type="date" {...field} />
                   </FormControl>
@@ -371,7 +373,7 @@ export function EmployeeForm({
               name="employmentType"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>雇用形態 *</FormLabel>
+                  <FormLabel>雇用形態</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>

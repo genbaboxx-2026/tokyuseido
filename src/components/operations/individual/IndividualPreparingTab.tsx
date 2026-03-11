@@ -5,8 +5,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import dynamic from "next/dynamic"
 import {
   Loader2,
-  FileText,
-  Copy,
   AlertTriangle,
   Minus,
   ExternalLink,
@@ -22,17 +20,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
 import {
   Select,
   SelectContent,
@@ -52,7 +39,7 @@ import {
   defaultItemForm,
 } from "./IndividualPreparingTypes"
 
-// モーダルを遅延読み込み
+// コンポーネントを遅延読み込み
 const EvaluationDetailModal = dynamic(
   () => import("./EvaluationDetailModal").then((mod) => mod.EvaluationDetailModal),
   { ssr: false }
@@ -67,6 +54,10 @@ const DeleteItemDialog = dynamic(
 )
 const DistributionConfirmModal = dynamic(
   () => import("./DistributionConfirmModal").then((mod) => mod.DistributionConfirmModal),
+  { ssr: false }
+)
+const IndividualTemplatePanel = dynamic(
+  () => import("./IndividualTemplatePanel").then((mod) => mod.IndividualTemplatePanel),
   { ssr: false }
 )
 
@@ -108,7 +99,7 @@ export function IndividualPreparingTab({
 
   // 従業員一覧を取得（評価者選択用）
   const { data: employeesData } = useQuery<{ employees: Employee[] }>({
-    queryKey: ["employees", companyId],
+    queryKey: ["companyEmployees", companyId],
     queryFn: async () => {
       const res = await fetch(`/api/companies/${companyId}/employees`)
       if (!res.ok) throw new Error("従業員データの取得に失敗しました")
@@ -130,25 +121,6 @@ export function IndividualPreparingTab({
       return 0
     })
   }, [data?.evaluations, currentTabPhase])
-
-  // 一括テンプレ生成mutation
-  const bulkGenerateMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(
-        `/api/companies/${companyId}/operations/${periodId}/individual/bulk-generate-items`,
-        { method: "POST" }
-      )
-      if (!res.ok) throw new Error("一括生成に失敗しました")
-      return res.json()
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({
-        queryKey: ["individualEvaluations", companyId, periodId],
-      })
-      onStatusChange()
-      alert(data.message)
-    },
-  })
 
   // 評価更新mutation（評価者・ステータス）
   const updateEvaluationMutation = useMutation({
@@ -261,11 +233,6 @@ export function IndividualPreparingTab({
     onStatusChange()
   }
 
-  // 未設定のSTARTED件数を計算
-  const noItemCount = evaluations.filter(
-    (e) => e.currentPhase === currentTabPhase && e.status === "STARTED" && e.itemStats.total === 0
-  ).length
-
   // 配布可能な評価（PREPARING状態で項目設定済み、評価者設定済み）
   const distributableEvaluations = evaluations.filter(
     (e) => e.currentPhase === currentTabPhase && e.status === "PREPARING" && e.itemStats.total > 0 && e.evaluatorId
@@ -366,50 +333,23 @@ export function IndividualPreparingTab({
 
   return (
     <div className="space-y-4">
-      {/* 一括操作ボタン */}
-      <div className="flex gap-2">
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={bulkGenerateMutation.isPending || noItemCount === 0}
-            >
-              {bulkGenerateMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : (
-                <FileText className="h-4 w-4 mr-1" />
-              )}
-              一括テンプレ生成
-              {noItemCount > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs">
-                  {noItemCount}
-                </Badge>
-              )}
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>一括テンプレート生成を実行しますか？</AlertDialogTitle>
-              <AlertDialogDescription>
-                下書き状態の{noItemCount}件に対して、等級・職種に応じたテンプレートから評価項目を生成します。
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>キャンセル</AlertDialogCancel>
-              <AlertDialogAction onClick={() => bulkGenerateMutation.mutate()}>
-                実行
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-        <Button variant="outline" size="sm" disabled>
-          <Copy className="h-4 w-4 mr-1" />
-          一括前期コピー
-        </Button>
+      {/* テンプレートパネル */}
+      <IndividualTemplatePanel
+        companyId={companyId}
+        periodId={periodId}
+        onApplySuccess={() => {
+          queryClient.invalidateQueries({
+            queryKey: ["individualEvaluations", companyId, periodId],
+          })
+          onStatusChange()
+        }}
+      />
+
+      {/* 配布ボタン */}
+      <div className="flex justify-end">
         <Button
           size="sm"
-          className="bg-blue-600 hover:bg-blue-700 ml-auto"
+          className="bg-blue-600 hover:bg-blue-700"
           onClick={() => setDistributionModalOpen(true)}
           disabled={distributableEvaluations.length === 0}
         >

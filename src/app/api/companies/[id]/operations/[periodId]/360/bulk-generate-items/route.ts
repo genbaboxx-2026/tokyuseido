@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 
-// POST: 全draft者にテンプレートから項目を一括生成
+// POST: 全draft/preparing_items者にテンプレートから項目を一括生成
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; periodId: string }> }
@@ -15,12 +15,16 @@ export async function POST(
 
     const { id: companyId, periodId } = await params
 
-    // draft ステータスのレコードを取得
-    const draftRecords = await prisma.evaluation360Record.findMany({
+    // リクエストbodyからoverwriteフラグを取得
+    const body = await request.json().catch(() => ({}))
+    const { overwrite = false } = body as { overwrite?: boolean }
+
+    // draft または preparing_items ステータスのレコードを取得
+    const targetRecords = await prisma.evaluation360Record.findMany({
       where: {
         companyId,
         evaluationPeriodId: periodId,
-        status: "draft",
+        status: { in: ["draft", "preparing_items"] },
       },
       include: {
         employee: {
@@ -41,7 +45,7 @@ export async function POST(
         periodId,
         evaluationType: "360",
         isDeleted: false,
-        employeeId: { in: draftRecords.map((r) => r.employeeId) },
+        employeeId: { in: targetRecords.map((r) => r.employeeId) },
       },
       _count: { id: true },
     })
@@ -50,16 +54,19 @@ export async function POST(
       recordItemCounts.map((r) => [r.employeeId, r._count.id])
     )
 
-    // 既に項目があるレコードはスキップ
-    const recordsToGenerate = draftRecords.filter(
-      (r) => (itemCountMap.get(r.employeeId) || 0) === 0
-    )
+    // overwrite=false の場合は項目未設定のレコードのみ対象
+    // overwrite=true の場合は全対象レコード
+    const recordsToGenerate = overwrite
+      ? targetRecords
+      : targetRecords.filter((r) => (itemCountMap.get(r.employeeId) || 0) === 0)
 
     if (recordsToGenerate.length === 0) {
       return NextResponse.json({
         success: true,
         generated: 0,
-        message: "生成対象のレコードがありません（全員項目設定済みまたはdraft以外）",
+        message: overwrite
+          ? "生成対象のレコードがありません"
+          : "生成対象のレコードがありません（全員項目設定済みまたは対象外ステータス）",
       })
     }
 
@@ -99,6 +106,17 @@ export async function POST(
 
       // トランザクションでカスタム項目を作成
       await prisma.$transaction(async (tx) => {
+        // overwrite=true の場合は既存項目を削除
+        if (overwrite) {
+          await tx.evaluationCustomItem.deleteMany({
+            where: {
+              employeeId,
+              periodId,
+              evaluationType: "360",
+            },
+          })
+        }
+
         // カスタム項目を作成
         const itemsToCreate = template.categories.flatMap((category) =>
           category.items.map((item) => ({
@@ -125,7 +143,7 @@ export async function POST(
           })
         }
 
-        // ステータスを preparing_items に更新
+        // ステータスを preparing_items に更新（既に preparing_items の場合も再設定）
         await tx.evaluation360Record.update({
           where: { id: record.id },
           data: { status: "preparing_items" },

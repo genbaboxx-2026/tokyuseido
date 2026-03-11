@@ -15,16 +15,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { companySchema, type CompanyFormData } from '@/lib/company/validation';
-import { COMPANY_LABELS, EVALUATION_CYCLE_OPTIONS } from '@/lib/company/constants';
+import { COMPANY_LABELS } from '@/lib/company/constants';
 
 interface CompanyFormProps {
   initialData?: {
@@ -34,7 +27,6 @@ interface CompanyFormProps {
     representative?: string | null;
     establishedDate?: Date | string | null;
     businessDescription?: string | null;
-    evaluationCycle: 'HALF_YEARLY' | 'YEARLY';
   };
   isEditing?: boolean;
   redirectPath?: string;
@@ -55,7 +47,6 @@ export function CompanyForm({ initialData, isEditing = false, redirectPath }: Co
         ? new Date(initialData.establishedDate).toISOString().split('T')[0]
         : '',
       businessDescription: initialData?.businessDescription ?? '',
-      evaluationCycle: initialData?.evaluationCycle ?? 'HALF_YEARLY',
     },
   });
 
@@ -181,31 +172,6 @@ export function CompanyForm({ initialData, isEditing = false, redirectPath }: Co
                       rows={4}
                     />
                   </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="evaluationCycle"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{COMPANY_LABELS.EVALUATION_CYCLE}</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="評価周期を選択" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {EVALUATION_CYCLE_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                   <FormMessage />
                 </FormItem>
               )}

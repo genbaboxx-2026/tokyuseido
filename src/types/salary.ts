@@ -13,6 +13,37 @@
 import type { SalaryTable as SalaryTableModel, SalaryTableEntry as SalaryTableEntryModel } from '../generated/prisma';
 
 // ============================================
+// Rounding Types（丸め処理）
+// ============================================
+
+/**
+ * 丸め方法
+ * - none: 丸めなし（計算結果をそのまま使用）
+ * - ceil: 切り上げ
+ * - floor: 切り捨て
+ * - round: 四捨五入
+ */
+export type RoundingMethod = 'none' | 'ceil' | 'floor' | 'round';
+
+/**
+ * 丸め単位（円単位）
+ * - 1: 1円単位（丸めなしと同等）
+ * - 10: 10円単位
+ * - 100: 100円単位
+ * - 1000: 1,000円単位
+ * - 10000: 10,000円単位
+ */
+export type RoundingUnit = 1 | 10 | 100 | 1000 | 10000;
+
+/**
+ * 丸めオプション
+ */
+export interface RoundingOptions {
+  method: RoundingMethod;
+  unit: RoundingUnit;
+}
+
+// ============================================
 // Base Types (Prisma generated types)
 // ============================================
 
